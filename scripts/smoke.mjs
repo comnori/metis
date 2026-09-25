@@ -1,0 +1,47 @@
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..');
+const run = path.join(root, '.pre04-runs', `smoke-${Date.now()}`);
+await mkdir(run, { recursive: true });
+const fixture = path.join(run, 'workspace'); await mkdir(fixture);
+const source = Buffer.from('\uFEFF= PRE-04 원문\r\n\r\n읽기 전용 확인');
+await writeFile(path.join(fixture, 'note.adoc'), source);
+const packaged = process.argv[2];
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const instance = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+const checks = [];
+try {
+  const page = await instance.firstWindow();
+  await page.getByRole('heading', { name: '문서가 있는 곳에서 시작하세요.' }).waitFor();
+  assert.deepEqual(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.metis.invoke]), ['undefined', 'undefined', 'undefined']); checks.push('renderer isolation');
+  await instance.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
+  await page.getByRole('status').filter({ hasText: '취소' }).waitFor(); checks.push('dialog cancellation');
+  await instance.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); }, fixture);
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
+  await page.getByRole('button', { name: '≡note.adoc' }).click();
+  await page.getByRole('heading', { name: 'note.adoc' }).waitFor();
+  assert.match(await page.locator('.cm-content').innerText(), /PRE-04 원문/); checks.push('folder to source UI');
+  const values = await page.evaluate(async () => {
+    const api = window.metis;
+    const opened = await api.openWorkspace({ requestId: 'open' });
+    if (!opened.ok) throw new Error('open failed');
+    const scope = { requestId: 'read', workspaceId: opened.value.workspaceId, workspaceEpoch: opened.value.workspaceEpoch };
+    const invalid = await api.readDocument({ ...scope, relativePath: '../outside.adoc' });
+    const missing = await api.readDocument({ ...scope, relativePath: 'missing.adoc' });
+    await api.openWorkspace({ requestId: 'reopen' });
+    const stale = await api.readDocument({ ...scope, relativePath: 'note.adoc' });
+    return { invalid, missing, stale };
+  });
+  assert.equal(values.invalid.error.code, 'INVALID_REQUEST'); assert.equal(values.missing.error.code, 'NOT_FOUND'); assert.equal(values.stale.error.code, 'STALE_WORKSPACE');
+  checks.push('IPC validation', 'missing document', 'stale workspace');
+  await page.waitForFunction(async () => { const result = await window.metis.runtime({ requestId: 'runtime' }); return result.ok && result.value.workerReady; }); checks.push('utility readiness');
+  assert.deepEqual(await readFile(path.join(fixture, 'note.adoc')), source); checks.push('source bytes unchanged');
+  await instance.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive());
+  await page.screenshot({ path: path.join(run, 'window.png') });
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ platform: process.platform, packaged: !!packaged, checks }, null, 2));
+  console.log(JSON.stringify({ run, checks }, null, 2));
+} finally { await instance.close(); }

@@ -1,0 +1,62 @@
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m3-03-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true });
+const gitEnv = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_'))), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' };
+const git = (...args) => execFileSync('git', args, { cwd: fixture, env: gitEnv, encoding: 'utf8', windowsHide: true });
+git('init', '-b', 'main'); git('config', 'user.name', 'Metis Test'); git('config', 'user.email', 'metis@example.invalid'); git('config', 'commit.gpgsign', 'false'); git('config', 'core.autocrlf', 'false');
+const old = '= Historical\n:product: Old\n\n[[stable]]\n== Old\n\nOld body\n\ninclude::part.adoc[tag=old]';
+const disk = '= Current\n:product: New\n\n[[stable]]\n== Current\n\nCurrent body\n\ninclude::part.adoc[tag=new]';
+await writeFile(path.join(fixture, 'a.adoc'), old); await writeFile(path.join(fixture, 'part.adoc'), 'CURRENT INCLUDE SECRET'); git('add', '.'); git('commit', '-m', 'Historical version');
+await writeFile(path.join(fixture, 'a.adoc'), disk); const head = git('rev-parse', 'HEAD'), index = await readFile(path.join(fixture, '.git/index'));
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2], checks = [];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+let page;
+try {
+  page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
+  await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
+  const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\n\nUnsaved body');
+  await page.keyboard.press('ControlOrMeta+Shift+P'); const palette = page.getByRole('dialog', { name: '명령 팔레트' }); await palette.getByRole('combobox').fill('의미·텍스트 비교'); await palette.getByRole('combobox').press('Enter');
+  const modal = page.getByRole('dialog', { name: '의미·텍스트 비교' });
+  await modal.getByLabel('이후 비교 원문').waitFor(); assert.equal(await modal.getByLabel('이전 비교 원문').inputValue(), disk); assert.ok((await modal.getByLabel('이후 비교 원문').inputValue()).includes('Unsaved body'));
+  async function compare() { await modal.getByRole('button', { name: '의미 비교', exact: true }).click(); await modal.getByRole('status').filter({ hasText: '의미 비교를 완료했습니다.' }).waitFor(); }
+  await compare(); const result = modal.getByRole('region', { name: '의미 비교 결과', exact: true });
+  assert.ok((await result.textContent()).includes('블록')); assert.ok((await modal.getByRole('region', { name: '텍스트 비교' }).textContent()).includes('+ Unsaved body'));
+  checks.push('palette compares disk with captured dirty buffer and presents semantic and text changes together');
+  await modal.getByRole('button', { name: '과거 버전 선택', exact: true }).click(); await modal.getByRole('button', { name: /Historical version/ }).click(); await result.waitFor({ state: 'hidden' }); await modal.getByRole('status').filter({ hasText: '이전 원문을 변경했습니다.' }).waitFor();
+  assert.equal(await modal.getByLabel('이전 비교 원문').inputValue(), old); await compare();
+  for (const label of ['절 · 변경', '속성 · 변경', '포함 · 변경']) await result.getByRole('heading', { name: label, exact: true }).first().waitFor();
+  assert.ok(!(await result.textContent()).includes('CURRENT INCLUDE SECRET')); assert.ok((await result.textContent()).includes('부분 비교'));
+  checks.push('historical baseline invalidates old result; section, attribute and include options compare without current included content');
+  await result.getByRole('button', { name: '이전 원문: 5행', exact: true }).first().click();
+  const selected = await modal.getByLabel('이전 비교 원문').evaluate(node => node.value.slice(node.selectionStart, node.selectionEnd)); assert.equal(selected, '== Old');
+  checks.push('semantic evidence selects the historical snapshot line without moving or changing live editor');
+  await result.getByRole('heading', { name: /Semantic Diff/ }).scrollIntoViewIfNeeded(); await page.screenshot({ path: path.join(run, 'semantic-diff.png') });
+  await writeFile(path.join(fixture, 'a.adoc'), '= External\n\nDisk changed');
+  assert.equal(await modal.getByLabel('이전 비교 원문').inputValue(), old);
+  await modal.getByRole('button', { name: '원문 다시 읽기', exact: true }).click(); await result.waitFor({ state: 'hidden' }); await modal.getByLabel('이전 비교 원문').waitFor();
+  assert.equal(await modal.getByLabel('이전 비교 원문').inputValue(), '= External\n\nDisk changed'); assert.ok((await modal.getByLabel('이후 비교 원문').inputValue()).includes('Unsaved body'));
+  await modal.getByRole('button', { name: '닫기', exact: true }).click(); assert.ok((await editor.textContent()).includes('Unsaved body'));
+  checks.push('explicit refresh updates the disk baseline while keeping dirty editor and clearing stale semantic result');
+  const boundary = await page.evaluate(async () => {
+    const opened = await window.metis.openWorkspace({ requestId: 'open' }); if (!opened.ok) throw Error('open'); const scope = { workspaceId: opened.value.workspaceId, workspaceEpoch: opened.value.workspaceEpoch };
+    const request = { ...scope, requestId: 'compare', relativePath: 'a.adoc', before: '= A', after: '= B' };
+    const pending = window.metis.semanticDiff(request); await window.metis.cancelSemanticDiff({ ...scope, requestId: 'cancel' }); const cancelled = await pending;
+    const next = await window.metis.semanticDiff({ ...request, requestId: 'next' });
+    const stale = await window.metis.semanticDiff({ ...request, workspaceEpoch: scope.workspaceEpoch + 1 });
+    const invalid = await window.metis.semanticDiff({ ...request, relativePath: '../a.adoc' });
+    return { cancelled, next: next.ok, stale, invalid };
+  });
+  assert.equal(boundary.cancelled.error.code, 'CANCELLED'); assert.equal(boundary.next, true); assert.equal(boundary.stale.error.code, 'STALE_WORKSPACE'); assert.equal(boundary.invalid.error.code, 'INVALID_REQUEST');
+  checks.push('dedicated comparison cancellation permits retry and rejects stale sessions and escaping paths');
+  assert.equal(await readFile(path.join(fixture, 'a.adoc'), 'utf8'), '= External\n\nDisk changed'); assert.equal(git('rev-parse', 'HEAD'), head); assert.deepEqual(await readFile(path.join(fixture, '.git/index')), index);
+  checks.push('comparison never writes source, Git HEAD or index');
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch(error) { console.error('Completed:', checks); if(page) { console.error(await page.locator('body').innerText().catch(() => '')); await page.screenshot({ path: path.join(run, 'failure.png') }).catch(() => {}); } throw error; }
+finally { await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; }).catch(() => {}); await app.close(); }

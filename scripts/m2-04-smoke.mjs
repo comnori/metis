@@ -1,0 +1,43 @@
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m2-04-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true }); await writeFile(path.join(fixture, 'a.adoc'), '= A'); await writeFile(path.join(fixture, 'b.adoc'), '= B'); await writeFile(path.join(fixture, 'mixed.adoc'), '= Mixed\r\n\nBody');
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2], checks = [];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+try {
+  const page = await app.firstWindow(); page.setDefaultTimeout(5000); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive()); page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
+  await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 0; }, fixture);
+  await page.getByRole('button', { name: '명령 팔레트', exact: true }).click();
+  const palette = page.getByRole('dialog', { name: '명령 팔레트' }), query = palette.getByRole('combobox');
+  await query.fill('문서 저장'); const save = palette.getByRole('option'); assert.equal(await save.getAttribute('aria-disabled'), 'true'); assert.ok((await save.textContent()).includes('작업 공간'));
+  await query.press('Enter'); assert.equal(await palette.isVisible(), true);
+  await query.fill('없는명령XYZ'); await palette.getByRole('status').filter({ hasText: '일치하는 명령이 없습니다' }).waitFor();
+  await query.press('Escape'); await palette.waitFor({ state: 'hidden' }); await page.waitForFunction(() => document.activeElement?.hasAttribute('data-focus-home'));
+  checks.push('disabled reasons, no-result search, Enter guard and Escape focus restoration');
+  await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('폴더 열기'); await query.press('Enter'); await palette.waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '≡a.adoc', exact: true }).click(); const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
+  await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nA edited');
+  await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('문서 저장'); assert.equal(await save.getAttribute('aria-disabled'), 'false'); await query.press('Enter');
+  await page.locator('footer').filter({ hasText: '저장했습니다.' }).waitFor(); assert.equal(await readFile(path.join(fixture, 'a.adoc'), 'utf8'), '= A\nA edited');
+  checks.push('palette workspace open and dirty document save use existing actions');
+  await page.getByRole('button', { name: '≡b.adoc', exact: true }).click(); await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor(); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nB edited'); await page.keyboard.press('ControlOrMeta+s');
+  await page.locator('footer').filter({ hasText: '저장했습니다.' }).waitFor(); assert.equal(await readFile(path.join(fixture, 'b.adoc'), 'utf8'), '= B\nB edited'); assert.equal(await readFile(path.join(fixture, 'a.adoc'), 'utf8'), '= A\nA edited');
+  await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('문서 저장'); assert.equal(await save.getAttribute('aria-disabled'), 'true'); assert.ok((await save.textContent()).includes('변경이 없습니다'));
+  await query.fill('보기'); await query.press('End'); assert.equal(await query.getAttribute('aria-activedescendant'), 'command-option-' + (await palette.getByRole('option').count() - 1)); await query.press('Home'); assert.ok((await query.getAttribute('aria-activedescendant')).endsWith('0'));
+  await query.fill('관계 탐색'); await query.press('Enter'); const relations = page.getByRole('dialog', { name: '작업 공간 관계' }); await relations.waitFor(); await relations.getByRole('button', { name: '닫기', exact: true }).click();
+  checks.push('active-tab keyboard save, clean-state availability and keyboard navigation to relation dialog');
+  await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nKeep unsaved');
+  await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('폴더 닫기'); await query.press('Enter'); await palette.waitFor({ state: 'hidden' });
+  assert.ok((await editor.textContent()).includes('Keep unsaved')); await page.getByRole('heading', { name: 'workspace', exact: true }).waitFor(); checks.push('palette workspace close respects native dirty-buffer cancellation');
+  await page.evaluate(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, shiftKey: true, isComposing: true })); window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, shiftKey: true, repeat: true })); }); assert.equal(await palette.count(), 0);
+  await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('문서 저장'); await query.evaluate(node => node.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }))); assert.equal(await palette.isVisible(), true); assert.equal(await readFile(path.join(fixture, 'b.adoc'), 'utf8'), '= B\nB edited');
+  checks.push('IME composition and repeated shortcut events do not execute commands');
+  await query.press('Escape'); await palette.waitFor({ state: 'hidden' }); await page.getByRole('button', { name: '≡mixed.adoc', exact: true }).click(); await page.getByRole('heading', { name: 'mixed.adoc', exact: true }).waitFor(); await page.keyboard.press('ControlOrMeta+Shift+P'); await query.fill('문서 저장'); assert.equal(await save.getAttribute('aria-disabled'), 'true'); assert.ok((await save.textContent()).includes('혼합 줄바꿈')); checks.push('read-only mixed line-ending document explains unavailable save');
+  await query.fill(''); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive()); await page.screenshot({ path: path.join(run, 'commands.png') });
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch (error) { console.error('Original failure:', error); const page = await app.firstWindow(); console.error('Completed:', checks); console.error(await page.locator('main').innerText()); console.error(await page.locator('.editor-panel:not([hidden]) .cm-content').evaluate(node => { const rows=[]; for(let n=node;n;n=n.parentElement) { const r=n.getBoundingClientRect(); const s=getComputedStyle(n); rows.push({tag:n.tagName, cls:n.className,w:r.width,h:r.height,display:s.display,visibility:s.visibility}); } return rows; }).catch(() => 'No visible editor at failure'));  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive()); await page.screenshot({ path: path.join(run, 'failure.png'), timeout: 5000 }).catch(() => {}); throw error; }
+finally { await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; }).catch(() => {}); await app.close(); }

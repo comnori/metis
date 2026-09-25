@@ -1,0 +1,44 @@
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import { uiCommand } from './ui-command.mjs';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m4-03-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true });
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2], checks = [];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env }); let page;
+try {
+  page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
+  await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  const hint = page.getByRole('region', { name: '첫 사용 안내' }); await hint.waitFor();
+  await hint.getByRole('button', { name: '작성 방법과 예제 보기' }).click(); const guide = page.getByRole('dialog', { name: '시작 안내' });
+  await guide.getByText('읽기 전용 AsciiDoc 예제', { exact: true }).click(); await guide.getByLabel('학습용 예제 원문').waitFor();
+  assert.deepEqual(await readdir(fixture), []); await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('button', { name: '작성 방법과 예제 보기' }).evaluate(e => e === document.activeElement), true);
+  await hint.getByRole('button', { name: '안내 건너뛰기' }).click(); await hint.waitFor({ state: 'hidden' }); await page.reload(); await hint.waitFor({ state: 'hidden' });
+  await uiCommand(page, '시작 안내'); await guide.getByRole('button', { name: '시작 화면 안내 다시 표시' }).click(); await hint.waitFor();
+  checks.push('guide and read-only sample create no files; Escape restores focus; skip persists and palette can restore hints');
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).click();
+  await page.getByRole('button', { name: '이 폴더에 문서 만들기' }).click();
+  const create = page.getByRole('dialog', { name: '새 문서' }); await create.getByLabel('문서 이름 (.adoc)').fill('first.adoc'); await create.getByRole('button', { name: '만들기', exact: true }).click();
+  const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); const text = '= First note\n\nMy first saved document.'; await page.keyboard.insertText(text);
+  await page.getByRole('button', { name: '저장', exact: true }).click(); await page.locator('footer').filter({ hasText: '저장했습니다.' }).waitFor();
+  assert.equal(await readFile(path.join(fixture, 'first.adoc'), 'utf8'), text);
+  await page.getByRole('button', { name: 'first.adoc 탭 닫기', exact: true }).click(); await page.getByRole('button', { name: '≡first.adoc', exact: true }).click(); assert.ok((await editor.textContent()).includes('My first saved document.'));
+  checks.push('empty-folder primary action creates a document; explicit save and close/reopen preserve authored text');
+  await uiCommand(page, '새 문서'); await create.getByLabel('문서 이름 (.adoc)').fill('first.adoc'); await create.getByRole('button', { name: '만들기', exact: true }).click();
+  await create.getByRole('alert').waitFor(); assert.equal(await readFile(path.join(fixture, 'first.adoc'), 'utf8'), text); await create.getByRole('button', { name: '취소', exact: true }).click();
+  await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUNSAVED');
+  await uiCommand(page, '시작 안내'); await guide.getByText('읽기 전용 AsciiDoc 예제', { exact: true }).click(); await guide.getByRole('button', { name: '닫기', exact: true }).click();
+  assert.ok((await editor.textContent()).includes('UNSAVED')); assert.equal(await readFile(path.join(fixture, 'first.adoc'), 'utf8'), text);
+  checks.push('duplicate name refuses overwrite; reopening help preserves unsaved edits and saved bytes');
+  await page.getByRole('button', { name: '저장', exact: true }).click(); await page.locator('footer').filter({ hasText: '저장했습니다.' }).waitFor(); await page.getByRole('button', { name: 'first.adoc 탭 닫기', exact: true }).click();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(800, 600));
+  await page.getByRole('button', { name: '파일 목록 보기' }).click(); await page.getByRole('button', { name: '≡first.adoc', exact: true }).click();
+  const filesBeforeHelp = await readdir(fixture); await uiCommand(page, '시작 안내'); await page.screenshot({ path: path.join(run, 'guide.png') }); await page.keyboard.press('Escape');
+  assert.deepEqual(await readdir(fixture), filesBeforeHelp); assert.deepEqual(filesBeforeHelp.filter(name => name.endsWith('.adoc')), ['first.adoc']); checks.push('narrow empty screen opens temporary file panel; guide remains available with a document open');
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch (error) { console.error('Completed:', checks); if (page) console.error(await page.locator('body').innerText().catch(() => '')); throw error; }
+finally { await app.close(); }

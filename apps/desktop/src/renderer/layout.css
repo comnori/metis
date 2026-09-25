@@ -1,0 +1,19 @@
+.app.app>header{min-height:56px;height:56px;padding:8px 12px;flex-wrap:nowrap;gap:8px;position:relative;z-index:4}
+.app.app>header strong{font-size:20px;white-space:nowrap}.app.app>header strong span{display:none}
+.app.app>header>div{flex-wrap:nowrap;gap:4px;align-items:center}.app.app>header button,.layout-menu summary{font-size:12px;padding:7px 9px;white-space:nowrap}
+.layout-menu summary{cursor:pointer;border:1px solid #ccd7d2;border-radius:6px;background:white;list-style:none}
+.layout-menu>div{position:absolute;right:8px;top:52px;width:min(340px,calc(100vw - 16px));max-height:calc(100dvh - 68px);overflow:auto;background:#faf9f5;border:1px solid #ccd7d2;border-radius:8px;box-shadow:0 8px 24px #142d2733;padding:12px;display:grid;gap:8px}
+.layout-menu>div button{text-align:left}.layout-menu label{display:grid;gap:4px;font-size:12px}.layout-menu input{width:100%}
+.app>.body>aside{width:var(--file-width);padding:16px 12px}.app.hide-files>.body>aside{display:none}
+.app .analysis .outline{width:var(--outline-width)}.app.hide-outline .analysis .outline{display:none}
+.app .document-title{padding:10px 14px;flex-shrink:0}.app .document-title h1{margin-bottom:4px;font-size:15px}.app .document-title .tools{margin-top:6px}
+.app footer{flex-shrink:0;max-height:64px;overflow:auto}.app .tabs{flex-shrink:0}
+@media(max-width:900px){
+ .app.app>header{height:48px;min-height:48px;padding:5px 8px;justify-content:space-between}.app.app>header strong{font-size:16px}
+ .app.app>header button,.layout-menu summary{padding:6px;font-size:11px}.app.app>header .wide-command{display:none}
+ .app>.body>aside,.app .analysis .outline{display:none}
+ .app.mobile-files>.body>aside,.app.mobile-outline .analysis .outline{display:block;position:fixed;top:48px;bottom:36px;z-index:3;width:min(300px,85vw);box-shadow:0 6px 24px #142d2733}
+ .app.mobile-files>.body>aside{left:0}.app.mobile-outline .analysis .outline{right:0;background:#f0f3ed}
+ .app .document-title{padding:6px 10px}.app .document-title .tools{gap:4px}.app .document-title .tools button{padding:4px 6px}
+ .app .document-body.mode-split{flex-direction:column}.app .mode-split .editors,.app .mode-split .analysis{flex:1;min-height:0}
+}

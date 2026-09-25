@@ -1,0 +1,37 @@
+{
+  "name": "metis-pre03-probe",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Disposable PRE-03 compatibility probes, not the product application",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "test": "vitest run",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "probe:desktop": "node desktop-test.mjs",
+    "package": "electron-forge package"
+  },
+  "dependencies": {
+    "@asciidoctor/core": "4.0.11",
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.0",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/legacy-modes": "6.5.4",
+    "@codemirror/state": "6.7.4",
+    "@codemirror/view": "6.43.11",
+    "dompurify": "3.4.15",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@types/node": "26.5.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "44.3.0",
+    "playwright": "1.63.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  }
+}

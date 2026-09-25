@@ -1,0 +1,10 @@
+{
+  "name": "@metis/knowledge-index",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./external-agent": "./src/external-agent.ts", "./related": "./src/related.ts",
+    "./evidence": "./src/evidence.ts", "./ai-corpus": "./src/ai-corpus.ts", "./ai-provider": "./src/ai-provider.ts"
+  }
+}

@@ -1,0 +1,10 @@
+/.pre02-runs/
+/tools/__pycache__/
+/experiments/pre03/node_modules/
+/experiments/pre03/dist/
+/experiments/pre03/out/
+/.pre03-runs/
+/node_modules/
+/apps/desktop/dist/
+/.pre04-runs/
+/docs/

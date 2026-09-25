@@ -1,0 +1,50 @@
+import { uiCommand } from './ui-command.mjs';
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m4-07-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true }); const original = '= Access\n\nBody'; await writeFile(path.join(fixture, 'note.adoc'), original);
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2], checks = [];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+try {
+  const page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
+  await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
+  await page.getByRole('button', { name: '편집기로 바로 이동', exact: true }).focus(); await page.keyboard.press('Enter');
+  assert.equal(await editor.evaluate(e => e === document.activeElement), true); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
+  await page.getByRole('button', { name: '검색', exact: true }).click(); await page.getByRole('searchbox', { name: '검색어' }).waitFor(); await page.keyboard.press('Escape');
+  await page.waitForFunction(() => document.activeElement?.textContent === '검색');
+  checks.push('skip action focuses editor; search Escape returns focus to invoking button and retains dirty buffer');
+  await uiCommand(page, '보기 설정'); const settings = page.getByRole('dialog', { name: '보기 설정' });
+  await settings.getByRole('searchbox').fill('파일'); assert.equal(await settings.getByRole('group', { name: '목차 패널' }).count(), 0);
+  const width = settings.getByRole('slider', { name: /파일 패널 너비/ }); await width.focus(); await page.keyboard.press('ArrowRight'); assert.equal(await width.inputValue(), '250');
+  await settings.getByRole('button', { name: '보기 기본값 복원', exact: true }).click(); assert.equal(await width.inputValue(), '240');
+  await settings.getByRole('button', { name: '초기화 이전 값 복원', exact: true }).click(); assert.equal(await width.inputValue(), '250');
+  await settings.getByRole('searchbox').fill('없는항목'); await settings.getByRole('status').filter({ hasText: '일치하는 보기 설정' }).waitFor();
+  await settings.getByRole('searchbox').fill('');
+  for (let i = 0; i < 14; i++) { await page.keyboard.press(i % 2 ? 'Shift+Tab' : 'Tab'); assert.equal(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]')), true); }
+  await page.keyboard.press('Escape'); await page.waitForFunction(() => document.activeElement?.hasAttribute('data-focus-home'));
+  assert.ok((await editor.textContent()).includes('Unsaved')); assert.equal(await readFile(path.join(fixture, 'note.adoc'), 'utf8'), original);
+  checks.push('settings filter, keyboard range, reset and undo work; modal contains focus and fallback restores palette entry');
+  await page.getByRole('button', { name: '명령 팔레트', exact: true }).click(); const palette = page.getByRole('dialog', { name: '명령 팔레트' });
+  await palette.getByRole('combobox').fill('빠른 열기'); assert.equal(await palette.locator('kbd').textContent(), 'Ctrl+P'); await page.keyboard.press('Escape');
+  await uiCommand(page, '복구 사본'); await page.getByRole('dialog', { name: '복구 사본' }).waitFor(); await page.keyboard.press('Escape'); await page.waitForFunction(() => document.activeElement?.hasAttribute('data-focus-home'));
+  checks.push('Windows shortcut label uses Ctrl; recovery dialog Escape restores a usable keyboard entry');
+  await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+  await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.setContentSize(800, 600); win.webContents.setZoomFactor(2); });
+  await uiCommand(page, '보기 설정'); await settings.waitFor();
+  await settings.getByRole('button', { name: '닫기', exact: true }).focus();
+  assert.ok(await settings.evaluate(e => e.scrollWidth <= e.clientWidth + 2));
+  assert.equal(await page.evaluate(() => matchMedia('(forced-colors: active)').matches && matchMedia('(prefers-reduced-motion: reduce)').matches), true);
+  assert.equal(await settings.getByRole('button', { name: '닫기', exact: true }).evaluate(e => getComputedStyle(e).outlineStyle), 'solid');
+  assert.equal(await settings.getByRole('button', { name: '닫기', exact: true }).evaluate(e => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; }), true);
+  const capture = await app.evaluate(async ({ BrowserWindow }) => (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64'));
+  await writeFile(path.join(run, 'accessible-settings.png'), Buffer.from(capture, 'base64')); await page.keyboard.press('Escape');
+  checks.push('200% narrow forced-colors and reduced-motion settings retain scrollable controls and visible focus');
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch (error) { console.error('Completed:', checks); throw error; }
+finally { await app.close(); }

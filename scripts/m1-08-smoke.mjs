@@ -1,0 +1,68 @@
+import { uiCommand } from './ui-command.mjs';
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m1-08-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true });
+await writeFile(path.join(fixture, 'a.adoc'), '= Alpha\n\nneedle');
+await writeFile(path.join(fixture, 'b.adoc'), '= Beta\n\nneedle');
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+const checks = [];
+try {
+  const page = await app.firstWindow(); page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
+  await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  await uiCommand(page, '폴더 열기');
+  for (const name of ['a.adoc', 'b.adoc']) await page.getByRole('button', { name: `≡${name}`, exact: true }).click();
+  await page.getByRole('tab', { name: 'b.adoc', exact: true }).focus(); await page.keyboard.press('ArrowLeft');
+  assert.equal(await page.getByRole('tab', { name: 'a.adoc', exact: true }).getAttribute('aria-selected'), 'true');
+  await page.keyboard.press('End'); assert.equal(await page.getByRole('tab', { name: 'b.adoc', exact: true }).getAttribute('aria-selected'), 'true');
+  checks.push('roving tab focus and automatic selection with arrows and End');
+  await page.getByRole('button', { name: '새 문서', exact: true }).click();
+  const create = page.getByRole('dialog', { name: '새 문서', exact: true }); await create.waitFor();
+  for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]')), true); }
+  await page.keyboard.press('Escape'); await create.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), '새 문서');
+  checks.push('create dialog traps focus and Escape restores invoker');
+  await page.getByRole('button', { name: '검색', exact: true }).click();
+  const query = page.getByRole('searchbox', { name: '검색어' }); await query.fill('needle');
+  await page.locator('.search-result').nth(1).waitFor(); await query.focus(); await page.keyboard.press('ArrowDown'); await page.keyboard.press('ArrowDown');
+  assert.equal(await page.locator('.search-result').nth(1).evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('Home'); await page.keyboard.press('ArrowUp'); assert.equal(await query.evaluate(node => node === document.activeElement), true);
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Escape');
+  await page.locator('dialog.search-dialog').waitFor({ state: 'detached' }); checks.push('search keyboard navigation returns from first result to query');
+  const cancelled = await page.evaluate(async () => {
+    const api = window.metis, opened = await api.openWorkspace({ requestId: 'open-test' }); if (!opened.ok) throw Error(opened.error.message);
+    const scope = { requestId: 'review-test', workspaceId: opened.value.workspaceId, workspaceEpoch: opened.value.workspaceEpoch };
+    const review = api.previewFileChange({ ...scope, relativePath: 'a.adoc', action: 'move', destination: 'renamed.adoc' });
+    const cancel = await api.cancelFileReview({ ...scope, requestId: 'cancel', operationId: scope.requestId });
+    const result = await review;
+    return { cancel, result };
+  });
+  assert.ok(cancelled.cancel.ok); assert.equal(cancelled.result.ok, false); assert.equal(cancelled.result.error.code, 'CANCELLED');
+  assert.equal(await readFile(path.join(fixture, 'a.adoc'), 'utf8'), '= Alpha\n\nneedle');
+  checks.push('IPC cancels an in-flight review without modifying source');
+  for (let i = 0; i < 205; i++) await writeFile(path.join(fixture, `fixture-${i}.adoc`), '= Fixture\n\nneedle');
+  await writeFile(path.join(fixture, 'large.adoc'), ('가'.repeat(100) + '\n').repeat(4000));
+  await uiCommand(page, '폴더 열기');
+  await page.getByRole('button', { name: 'a.adoc 파일 변경', exact: true }).click();
+  const reviewDialog = page.getByRole('dialog', { name: '파일 변경 검토' });
+  await reviewDialog.getByLabel('새 상대 경로').fill('renamed.adoc');
+  await reviewDialog.getByRole('button', { name: '영향 검토', exact: true }).click();
+  await reviewDialog.getByText('폴더·문서·원문·후보·시간 한도에 도달했습니다. 전체 영향 검토가 아닙니다.', { exact: true }).waitFor();
+  await reviewDialog.getByRole('button', { name: '취소', exact: true }).click();
+  checks.push('208-document workspace shows bounded review warning without applying changes');
+  await page.getByRole('button', { name: '≡large.adoc', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '미리보기 원문 한도는 1 MiB' }).waitFor();
+  const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
+  await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('kept');
+  assert.ok((await editor.textContent()).includes('kept'));
+  checks.push('preview size failure leaves large source editable');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive());
+  await page.screenshot({ path: path.join(run, 'keyboard.png') });
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ platform: process.platform, packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch (error) { console.error('Completed checks:', checks); throw error; }
+finally { await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; }).catch(() => {}); await app.close(); }

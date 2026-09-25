@@ -1,0 +1,77 @@
+import { uiCommand } from './ui-command.mjs';
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, readFile, readdir } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..');
+const run = path.join(root, '.pre04-runs', `m1-02-${Date.now()}`);
+const fixture = path.join(run, 'workspace'); await mkdir(fixture, { recursive: true });
+await writeFile(path.join(fixture, 'note.adoc'), '\uFEFF= Original\r\nbody  ');
+await writeFile(path.join(fixture, 'other.adoc'), '= Other\n');
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+const checks = [];
+try {
+  const page = await app.firstWindow();
+  // Electron's will-prevent-unload handler owns the native close confirmation.
+  // Avoid Playwright's automatic beforeunload acceptance racing that handler.
+  page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
+  await app.evaluate(({ dialog }, fixture) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] });
+    dialog.showMessageBoxSync = () => 0;
+  }, fixture);
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
+  await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  const editor = () => page.locator('.editor-panel:not([hidden]) .cm-content');
+  await editor().click(); await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.insertText('= 편집\n본문  ');
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).waitFor();
+  await page.getByRole('button', { name: '≡other.adoc', exact: true }).click();
+  await page.getByRole('heading', { name: 'other.adoc', exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).click();
+  assert.equal(await editor().innerText(), '= 편집\n본문  ');
+  await page.getByRole('button', { name: '실행 취소', exact: true }).click();
+  assert.match(await editor().innerText(), /Original/);
+  await page.getByRole('button', { name: '다시 실행', exact: true }).click();
+  assert.equal(await editor().innerText(), '= 편집\n본문  '); checks.push('tab buffers, undo and redo');
+  await editor().click(); await page.keyboard.press('ControlOrMeta+s');
+  await page.getByRole('status').filter({ hasText: '저장했습니다.' }).waitFor();
+  assert.equal(await readFile(path.join(fixture, 'note.adoc'), 'utf8'), '\uFEFF= 편집\r\n본문  '); checks.push('editor save preserves BOM, CRLF, trailing spaces and no final newline');
+  await page.getByRole('button', { name: 'note.adoc 탭 닫기', exact: true }).click();
+  await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('heading', { name: 'note.adoc', exact: true }).waitFor();
+  assert.equal(await editor().innerText(), '= 편집\n본문  '); checks.push('save close reopen');
+  await editor().click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('new edit');
+  await writeFile(path.join(fixture, 'note.adoc'), '= External\n');
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: '외부' }).waitFor();
+  assert.match(await editor().innerText(), /new edit/);
+  assert.equal(await readFile(path.join(fixture, 'note.adoc'), 'utf8'), '= External\n'); checks.push('external conflict retains source and editor');
+  await page.getByRole('button', { name: 'note.adoc 탭 닫기', exact: true }).click();
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).waitFor();
+  await uiCommand(page, '폴더 닫기');
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).waitFor();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close());
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).waitFor(); checks.push('cancel dirty tab, workspace and window close');
+  await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; });
+  await page.getByRole('button', { name: 'note.adoc 탭 닫기', exact: true }).click();
+  await page.getByRole('tab', { name: 'note.adoc ●', exact: true }).waitFor({ state: 'detached' }); checks.push('explicit discard closes tab');
+  await page.getByRole('button', { name: '새 문서', exact: true }).click();
+  await page.getByLabel('문서 이름 (.adoc)').fill('new.adoc');
+  await page.getByRole('button', { name: '만들기', exact: true }).click();
+  await page.getByRole('heading', { name: 'new.adoc', exact: true }).waitFor();
+  await editor().click(); await page.keyboard.insertText('= 새 문서\n');
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: '저장했습니다.' }).waitFor();
+  assert.equal(await readFile(path.join(fixture, 'new.adoc'), 'utf8'), '= 새 문서\n'); checks.push('new document creation and save');
+  const recovery = path.join(run, 'profile/recovery');
+  assert.equal((await readdir(recovery)).length, 2); checks.push('durable before and edited recovery records');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive());
+  await page.screenshot({ path: path.join(run, 'window.png') });
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ platform: process.platform, packaged: !!packaged, checks }, null, 2));
+  console.log(JSON.stringify({ run, checks }, null, 2));
+} finally {
+  await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; }).catch(() => {});
+  await app.close();
+}

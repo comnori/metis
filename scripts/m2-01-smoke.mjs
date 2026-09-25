@@ -1,0 +1,58 @@
+import { uiCommand } from './ui-command.mjs';
+import { _electron as electron } from 'playwright';
+import executablePath from 'electron';
+import { mkdir, writeFile, unlink, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve(import.meta.dirname, '..'), run = path.join(root, '.pre04-runs', `m2-01-${Date.now()}`), fixture = path.join(run, 'workspace');
+await mkdir(fixture, { recursive: true });
+await writeFile(path.join(fixture, 'a.adoc'), '= A\n\nxref:c.adoc#target[]\n\ninclude::b.adoc[]');
+await writeFile(path.join(fixture, 'b.adoc'), 'include::c.adoc[]');
+await writeFile(path.join(fixture, 'c.adoc'), '[[target]]\n== Target\n\nShared body');
+const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
+const packaged = process.argv[2];
+const app = await electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+const checks = [];
+try {
+  const page = await app.firstWindow(); page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
+  await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
+  await page.getByRole('button', { name: '≡c.adoc', exact: true }).click();
+  await uiCommand(page, '관계 탐색');
+  const modal = page.getByRole('dialog', { name: '작업 공간 관계' });
+  await modal.getByRole('region', { name: '백링크' }).getByRole('button', { name: '출처: a.adoc:3' }).waitFor();
+  const parents = modal.getByRole('region', { name: '포함 변경 영향' });
+  await parents.getByText('a.adoc', { exact: true }).waitFor(); await parents.getByText('b.adoc', { exact: true }).waitFor();
+  checks.push('backlink evidence and transitive include parent contexts');
+  await modal.getByRole('region', { name: '백링크' }).getByRole('button', { name: '출처: a.adoc:3' }).click();
+  await page.getByRole('heading', { name: 'a.adoc', exact: true }).waitFor();
+  const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
+  await uiCommand(page, '관계 탐색'); await modal.getByLabel('대상 문서').selectOption('c.adoc');
+  await modal.getByRole('region', { name: '백링크' }).getByRole('button', { name: '출처: a.adoc:3' }).click();
+  assert.ok((await editor.textContent()).includes('Unsaved')); checks.push('source navigation preserves dirty buffer');
+  await uiCommand(page, '관계 탐색'); await modal.getByLabel('대상 문서').selectOption('c.adoc');
+  await modal.getByRole('region', { name: '백링크' }).getByRole('button', { name: '출처: a.adoc:3' }).waitFor();
+  await writeFile(path.join(fixture, 'a.adoc'), '= A\n\ninclude::b.adoc[]');
+  await modal.getByRole('region', { name: '백링크' }).getByText('확인된 관계가 없습니다.', { exact: true }).waitFor({ timeout: 15000 });
+  checks.push('automatic rebuild removes obsolete backlinks after external edit');
+  await unlink(path.join(fixture, 'c.adoc'));
+  await modal.getByRole('region', { name: '참조 검사' }).getByText(/포함 · c.adoc · 대상 없음/).first().waitFor({ timeout: 15000 });
+  checks.push('automatic rebuild reports deleted include targets');
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive()); await page.screenshot({ path: path.join(run, 'relations.png') });
+  await modal.getByRole('button', { name: '닫기', exact: true }).click();
+  assert.ok((await editor.textContent()).includes('Unsaved'));
+  const result = await page.evaluate(async () => {
+    const opened = await window.metis.openWorkspace({ requestId: 'relation-session' }); if (!opened.ok) throw Error('open failed');
+    const scope = { workspaceId: opened.value.workspaceId, workspaceEpoch: opened.value.workspaceEpoch };
+    const pending = window.metis.workspaceRelations({ ...scope, requestId: 'relations' });
+    const preview = window.metis.analyzeDocument({ ...scope, requestId: 'preview', relativePath: 'a.adoc', text: '= Preview\n\n== Alive' });
+    await window.metis.cancelRelations({ ...scope, requestId: 'cancel' });
+    return { cancelled: await pending, preview: await preview };
+  });
+  assert.equal(result.cancelled.ok, false); assert.equal(result.cancelled.error.code, 'CANCELLED'); assert.equal(result.preview.ok, true);
+  checks.push('relation cancellation leaves preview worker available');
+  assert.equal(await readFile(path.join(fixture, 'b.adoc'), 'utf8'), 'include::c.adoc[]');
+  checks.push('relationship investigation never writes source');
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
+} catch (error) { console.error('Completed:', checks); throw error; }
+finally { await app.evaluate(({ dialog }) => { dialog.showMessageBoxSync = () => 1; }).catch(() => {}); await app.close(); }
