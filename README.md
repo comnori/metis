@@ -1,95 +1,111 @@
 # Metis
 
-Metis는 표준 AsciiDoc 문서를 지식의 원본으로 삼는 로컬 우선 지식 도구를 지향합니다. 파일 기반의 소유권과 도구 독립성을 바탕으로, 문서의 구조화·조합·재사용과 연결된 지식 탐색을 지원하는 것이 목표입니다.
+English | [한국어](doc/README.ko.md)
 
-## 개발 환경
+Metis aims to be a local-first knowledge tool that uses standard AsciiDoc documents as the source of truth. Built around file ownership and tool independence, it helps users structure, compose, reuse, and explore connected knowledge.
 
-Electron·React·TypeScript 기반 데스크톱 앱이며, npm workspaces로 앱과 공통 패키지를 관리합니다.
+## Development philosophy
 
-| 항목 | 필수 정보 |
+**Knowledge should remain in the user's files, and tools should help users work with it.** Metis aims to provide an AsciiDoc-based knowledge environment where documents remain readable, editable, and reusable even after users stop using the app.
+
+```mermaid
+flowchart TD
+    Source["AsciiDoc standards · semantics · source files"] --> Preserve["Tool independence · long-term preservation · user ownership"]
+    Preserve --> Knowledge["Local knowledge connections · exploration"]
+    Knowledge --> Features["Convenience · extensions · AI assistance"]
+```
+
+The following principles guide implementation and feature decisions. Document meaning and portability take priority when adding convenience features.
+
+- **AsciiDoc source first:** Respect its syntax and semantics, and avoid custom syntax where the standard can express the content. Derived data, such as search indexes and graphs, must be rebuildable from the source.
+- **Files and ownership first:** Use local plain text files as the foundation of knowledge. The same documents should work with other editors, Git, and AsciiDoc tools.
+- **Meaning and reuse:** Prioritize document meaning over presentation. Use `include`, attributes, and `xref` to compose and reuse documents.
+- **Extensions that preserve the source:** Design plugins and AI to assist document work. Knowledge must remain readable and durable when those features are removed.
+
+See the [development philosophy](docs/development-philosophy.md) (in Korean) for detailed priorities and decision criteria.
+
+## Development environment
+
+Metis is a desktop app built with Electron, React, and TypeScript. npm workspaces manage the app and shared packages.
+
+| Requirement | Details |
 | --- | --- |
-| Node.js | `>=24.21.0 <25`; 재현 및 CI 기준은 **24.21.0** |
-| npm | 기존 로컬 검증 기준 **11.19.0**; 루트 `package-lock.json`으로 설치 |
-| 운영체제 | Windows x64 로컬 검증 완료. macOS·Linux는 CI 구성만 있으며 실행 검증 전 |
-| 실행 환경 | Electron 창을 표시할 수 있는 데스크톱 환경. 최초 의존성·Electron 설치 시 네트워크 필요 |
+| Node.js | `>=24.21.0 <25`; **24.21.0** is the reproducibility and CI baseline |
+| npm | **11.19.0** was used for existing local validation; install using the root `package-lock.json` |
+| Operating system | Locally validated on Windows x64. CI is configured for macOS and Linux, but execution has not yet been validated |
+| Runtime environment | A desktop environment capable of displaying Electron windows. Network access is required for the initial dependency and Electron installation |
 
-모든 명령은 **저장소 루트**에서 실행합니다. 기본 실행에 별도 `.env` 파일이나 외부 서버·DB 설정은 필요하지 않습니다.
+Run all commands from the **repository root**. Basic usage requires no separate `.env` file, external server, or database configuration.
 
-## 설치·개발 빌드·실행
+## Install, build, and run
 
 ```sh
 npm ci
 npm start
 ```
 
-`npm start`는 앱을 빌드한 뒤 Electron을 실행합니다. 실행 후 **폴더 열기**로 AsciiDoc 문서가 있는 폴더를 선택하거나, **새 작업 공간**으로 시작하세요. 작업 공간에서 **새 문서**를 만들 수 있습니다.
+`npm start` builds the app and launches Electron. Select **Open folder (폴더 열기)** to open a folder containing AsciiDoc documents, or start with **New workspace (새 작업 공간)**. Use **New document (새 문서)** to create a document in the workspace.
 
-빌드만 수행하려면 다음 명령을 사용합니다.
+To build without launching the app:
 
 ```sh
 npm run build
 ```
 
-결과는 `apps/desktop/dist/`에 생성됩니다. 현재 개발 서버·watch·HMR 명령은 없으므로 소스를 수정한 뒤 실행 중인 앱을 종료하고 `npm start`를 다시 실행합니다.
+Build output is written to `apps/desktop/dist/`. There is currently no development server, watch mode, or HMR command. After editing the source, close the running app and run `npm start` again.
 
 ```mermaid
 flowchart LR
     Install["npm ci"] --> Start["npm start"]
-    Start --> Build["빌드 → apps/desktop/dist"]
-    Build --> Run["Electron 실행"]
-    Run --> Edit["앱 종료 · 소스 수정"]
+    Start --> Build["Build → apps/desktop/dist"]
+    Build --> Run["Launch Electron"]
+    Run --> Edit["Close app · edit source"]
     Edit --> Start
 ```
 
-## 변경 사항 검증
+## Validate changes
 
 ```sh
 npm run check
 npm run test:integration
 ```
 
-| 명령 | 용도 |
+| Command | Purpose |
 | --- | --- |
-| `npm run check` | 타입 검사 → 단위 테스트 → 실행 도구 테스트 → 빌드 |
-| `npm run typecheck` | 타입 검사만 실행 |
-| `npm test` | Vitest 단위 테스트만 실행 |
-| `npm run test:desktop` | 빌드된 개발 앱의 기본 기동 검사 |
-| `npm run test:integration` | 빌드된 개발 앱의 PRE-04·M1-01~08·M2-01~07·M3-01~03 통합 검사 |
+| `npm run check` | Type checking → unit tests → tooling tests → build |
+| `npm run typecheck` | Run type checking only |
+| `npm test` | Run Vitest unit tests only |
+| `npm run test:desktop` | Run basic smoke checks against the built development app |
+| `npm run test:integration` | Run PRE-04, M1-01–08, M2-01–07, and M3-01–03 integration checks against the built development app |
 
-GUI 검사는 자체 빌드를 수행하지 않으므로 먼저 `npm run check` 또는 `npm run build`를 실행해야 합니다. 테스트용 작업 공간·프로필·결과는 `.pre04-runs/`에 생성되고, 통합 결과와 단계별 로그는 `.pre04-runs/integration-*/`에 기록됩니다.
+GUI tests do not build the app themselves. Run `npm run check` or `npm run build` first. Test workspaces, profiles, and results are created under `.pre04-runs/`. Integration results and per-stage logs are written to `.pre04-runs/integration-*/`.
 
-Linux CI는 시스템 의존성 설치에 `npx playwright install-deps chromium`을 사용하고, GUI 검사는 `xvfb-run -a npm run test:integration`으로 실행합니다.
+Linux CI installs system dependencies with `npx playwright install-deps chromium` and runs GUI tests with `xvfb-run -a npm run test:integration`.
 
-## 실행 파일 패키징
+## Package the app
 
 ```sh
 npm run package
 npm run test:integration:packaged
 ```
 
-`package`는 빌드를 포함하며 **현재 호스트 OS·아키텍처용 실행 폴더**를 `.pre04-runs/package-*/out/`에 생성합니다. 설치 프로그램·서명·자동 업데이트는 포함하지 않습니다. 최신 패키지의 staging 경로는 `.pre04-runs/latest-package.txt`에 기록되며 패키지 통합 검사가 이를 자동으로 읽습니다.
+`package` includes a build and creates an **application folder for the current host OS and architecture** under `.pre04-runs/package-*/out/`. It does not include an installer, signing, or automatic updates. The latest package staging path is recorded in `.pre04-runs/latest-package.txt`, which packaged integration tests read automatically.
 
-Windows PowerShell에서 패키지 앱을 직접 실행하는 예시입니다.
+To launch the packaged app directly from Windows PowerShell:
 
 ```powershell
 $metisPackage = Get-Content .pre04-runs/latest-package.txt
 & "$metisPackage/out/Metis-win32-x64/Metis.exe"
 ```
 
-위 예시는 Windows x64 기준입니다. Linux의 패키지 GUI 검사는 `xvfb-run -a npm run test:integration:packaged`로 실행합니다.
+This example targets Windows x64. On Linux, run packaged GUI tests with `xvfb-run -a npm run test:integration:packaged`.
 
-## 개발 시 알아둘 위치와 경계
+## Respect — Obsidian and AsciiDoc
 
-| 경로 | 역할 |
-| --- | --- |
-| `apps/desktop/src/main` | Electron 창·IPC·파일 작업 조정 |
-| `apps/desktop/src/preload` | 화면에 노출하는 제한된 호스트 API |
-| `apps/desktop/src/renderer` | React UI·CodeMirror 편집기 |
-| `apps/desktop/src/utility` | 별도 프로세스의 문서 해석·검색 작업 |
-| `packages/contracts` | IPC 타입·요청 검증·오류 규약 |
-| `packages/workspace` | 작업 공간·파일 읽기/저장·복구·파일 변경 |
-| `packages/document-core` | AsciiDoc 해석·참조·자동완성 |
-| `packages/knowledge-index` | 문서 검색·색인 |
-| `scripts` | 빌드·실행·패키징·GUI 검증 |
+Metis respects and draws inspiration from Obsidian and AsciiDoc.
 
-문서 원본은 작업 공간의 파일입니다. 실제 저장·이동·삭제가 가능하므로 동작을 실험할 때는 별도 테스트 폴더를 사용하세요. `METIS_USER_DATA` 환경변수로 앱 프로필 위치를 분리할 수 있습니다. 생성된 `dist/`와 `.pre04-runs/`는 Git 추적 대상이 아닙니다.
+**Obsidian** is an important reference for Metis's approach to local-first work, user-owned knowledge, connections and exploration between documents, and extensible workflows. We aim to learn from the experience it offers people building and connecting their own knowledge.
+
+**AsciiDoc** provides the foundation for Metis's document philosophy and source format. We value meaningful plain text, the separation of content and presentation, and document structure, composition, and reuse. We aim to keep documents usable with existing AsciiDoc tools.
+
+We thank the developers and contributors who have built and sustained both projects and their ecosystems. Inspired by their work, Metis aims to create a knowledge workspace that stays true to AsciiDoc.
