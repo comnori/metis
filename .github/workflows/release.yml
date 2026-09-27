@@ -1,0 +1,121 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "[0-9]*.[0-9]*.[0-9]*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package / ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            asset: windows-x64
+          - os: macos-14
+            asset: macos-arm64
+          - os: ubuntu-22.04
+            asset: linux-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.21.0"
+          cache: npm
+
+      - name: Verify tag matches package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${RELEASE_TAG#v}"
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "package.json version ($PACKAGE_VERSION) does not match tag ($RELEASE_TAG)" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck, test and build
+        run: npm run check
+
+      - name: Package desktop application
+        run: npm run package
+
+      - name: Locate packaged application
+        shell: pwsh
+        run: |
+          $stage = (Get-Content .pre04-runs/latest-package.txt -Raw).Trim()
+          $packageDirectory = Get-ChildItem (Join-Path $stage "out") -Directory
+          if ($packageDirectory.Count -ne 1) {
+            throw "Expected exactly one packaged application, found $($packageDirectory.Count)."
+          }
+          "PACKAGE_DIRECTORY=$($packageDirectory.FullName)" >> $env:GITHUB_ENV
+          "ASSET_NAME=Metis-${{ github.ref_name }}-${{ matrix.asset }}.zip" >> $env:GITHUB_ENV
+
+      - name: Create Windows ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -LiteralPath $env:PACKAGE_DIRECTORY -DestinationPath $env:ASSET_NAME
+
+      - name: Create macOS ZIP
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIRECTORY" "$ASSET_NAME"
+
+      - name: Create Linux ZIP
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cd "$(dirname "$PACKAGE_DIRECTORY")"
+          zip -r "$GITHUB_WORKSPACE/$ASSET_NAME" "$(basename "$PACKAGE_DIRECTORY")"
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.asset }}
+          path: Metis-*.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish release
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged applications
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/*.zip \
+            --verify-tag \
+            --title "${RELEASE_TAG#v}" \
+            --generate-notes
