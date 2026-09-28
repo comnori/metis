@@ -6,7 +6,7 @@ import { Workspace, FileChanges, Recovery } from './index';
 import { validate, type FileChangeRequest } from '@metis/contracts';
 const roots: string[] = [];
 async function fixture() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'metis-m1-07-')); roots.push(root);
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'metis-m1-07-')); roots.push(root);
   const workspaceRoot = path.join(root, 'workspace'), recoveryRoot = path.join(root, 'recovery'); await fs.mkdir(path.join(workspaceRoot, 'docs'), { recursive: true });
   await fs.writeFile(path.join(workspaceRoot, 'note.adoc'), '\uFEFF= Note\r\n\r\ninclude::part.adoc[]\r\n');
   await fs.writeFile(path.join(workspaceRoot, 'part.adoc'), '== Part');
@@ -16,7 +16,7 @@ async function fixture() {
   const request: FileChangeRequest = { ...scope, relativePath: 'note.adoc', action: 'move', destination: 'docs/renamed.adoc' };
   return { root, workspaceRoot, recoveryRoot, workspace, changes: new FileChanges(workspace), scope, request };
 }
-afterEach(async () => { vi.restoreAllMocks(); for (const root of roots.splice(0)) { if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('metis-m1-07-')) throw new Error('Cleanup boundary'); await fs.rm(root, { recursive: true, force: true }); } });
+afterEach(async () => { vi.restoreAllMocks(); const temporaryRoot = await fs.realpath(os.tmpdir()); for (const root of roots.splice(0)) { if (path.dirname(root) !== temporaryRoot || !path.basename(root).startsWith('metis-m1-07-')) throw new Error('Cleanup boundary'); await fs.rm(root, { recursive: true, force: true }); } });
 test('preview is read-only; selected incoming and outgoing paths update preserving BOM and CRLF', async () => {
   const f = await fixture(); const plan = await f.changes.preview(f.request);
   expect(plan.impacts).toHaveLength(3); expect(await fs.readFile(path.join(f.workspaceRoot, 'note.adoc'), 'utf8')).toContain('include::part.adoc[]');

@@ -21,7 +21,8 @@ test('IPC accepts only ticket IDs or workspace-relative external paths', () => {
   expect(() => validate('openExternal', { requestId: 'test', workspaceId: 'test', workspaceEpoch: 1, relativePath: '../a.adoc' })).toThrow();
 });
 test('external launch passes one literal path and workspace blocks links and stale scopes', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'metis-launch-'));
+  const temporaryRoot = await fs.realpath(os.tmpdir());
+  const root = await fs.mkdtemp(path.join(temporaryRoot, 'metis-launch-'));
   try {
     const target = path.join(root, 'note with & spaces.adoc'), marker = path.join(root, 'opened.json');
     await fs.writeFile(target, `require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify(process.argv.slice(1)));`);
@@ -33,5 +34,5 @@ test('external launch passes one literal path and workspace blocks links and sta
     await fs.mkdir(path.join(root, 'sub')); await fs.symlink(path.join(root, 'sub'), path.join(root, 'link'), process.platform === 'win32' ? 'junction' : 'dir');
     await expect(workspace.externalPath({ ...request, relativePath: 'link/a.adoc' })).rejects.toMatchObject({ code: 'OUTSIDE_WORKSPACE' });
     workspace.close(request); await expect(workspace.externalPath(request)).rejects.toMatchObject({ code: 'NO_WORKSPACE' });
-  } finally { if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('metis-launch-')) throw Error('Unsafe cleanup'); await fs.rm(root, { recursive: true, force: true }); }
+  } finally { if (path.dirname(root) !== temporaryRoot || !path.basename(root).startsWith('metis-launch-')) throw Error('Unsafe cleanup'); await fs.rm(root, { recursive: true, force: true }); }
 });
