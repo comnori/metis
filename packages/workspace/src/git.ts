@@ -27,13 +27,31 @@ function gitError(error: unknown): never {
   const e = error as { code?: string; killed?: boolean };
   throw new BoundaryError(e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? 'TOO_LARGE' : 'INTERNAL_ERROR', e.code === 'ENOENT' ? 'Git 실행 파일을 찾지 못했습니다. 문서 편집은 계속 사용할 수 있습니다.' : e.killed ? 'Git 조회 시간 한도(10초)를 초과했습니다.' : 'Git 조회를 완료하지 못했습니다. 저장소 접근 권한·상태와 Git 설치를 확인하세요.');
 }
+function samePath(left: string, right: string) {
+  const normalize = (value: string) => path.normalize(value).replace(/[\\/]$/, '');
+  const [a, b] = [normalize(left), normalize(right)];
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+export async function isOwnGitRepository(root: string): Promise<boolean> {
+  try {
+    const top = decode(await run(root, ['rev-parse', '--show-toplevel'])).trimEnd();
+    return samePath(await fs.realpath(top), await fs.realpath(root));
+  } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT' || (error as { stderr?: Buffer }).stderr?.toString().includes('not a git repository')) return false;
+    return gitError(error);
+  }
+}
+export async function initializeGitRepository(root: string): Promise<void> {
+  try { await run(await fs.realpath(root), ['init']); }
+  catch (error) { return gitError(error); }
+}
 export class GitWorkspace {
   constructor(private workspace: Workspace) {}
   private async root(request: ScopedRequest) {
     const root = this.workspace.analysisRoot(request);
     try {
       const top = decode(await run(root, ['rev-parse', '--show-toplevel'])).trimEnd();
-      if (await fs.realpath(top) !== root) throw new BoundaryError('OUTSIDE_WORKSPACE', 'Git 조회는 저장소 루트 폴더를 작업 공간으로 열어 사용하세요.');
+      if (!samePath(await fs.realpath(top), root)) throw new BoundaryError('OUTSIDE_WORKSPACE', 'Git 조회는 저장소 루트 폴더를 작업 공간으로 열어 사용하세요.');
       this.workspace.analysisRoot(request); return root;
     } catch (error) {
       if (!(error instanceof BoundaryError) && (error as { stderr?: Buffer }).stderr?.toString().includes('not a git repository')) throw new BoundaryError('NOT_FOUND', 'Git 저장소가 아닌 폴더입니다. 문서 편집은 계속 사용할 수 있습니다.');

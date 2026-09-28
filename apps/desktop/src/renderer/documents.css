@@ -1,1 +1,43 @@
-.documents{display:flex;flex-direction:column;flex:1;min-height:0}.documents[hidden],.editor-panel[hidden]{display:none}.tabs{display:flex;overflow:auto;border-bottom:1px solid #dce2dc;background:#f0f3ed}.tabs>div{display:flex;flex-shrink:0}.tabs button{border:0;border-radius:0;background:transparent;font-size:12px}.tabs [aria-selected=true]{background:white;font-weight:bold}.document-title .tools{margin-top:12px}.editor-panel{display:flex;flex:1;min-height:0}.editor-panel .source{width:100%}
+.documents { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.documents[hidden], .editor-panel[hidden] { display: none; }
+.tabs { display: flex; min-height: 38px; overflow: auto; border-bottom: 1px solid var(--border); background: var(--surface); padding-left: 5px; }
+.tabs > div { display: flex; flex-shrink: 0; border-right: 1px solid var(--border); }
+.tabs button { border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size:calc(12px * var(--ui-font-scale, 1)); padding: 8px 11px; }
+.tabs button[role=tab] { min-width: 110px; text-align: left; }
+.tabs button[aria-label$="탭 닫기"] { min-width: 30px; padding: 6px; opacity: 0; }
+.tabs > div:hover button[aria-label$="탭 닫기"], .tabs button[aria-label$="탭 닫기"]:focus-visible { opacity: 1; }
+.tabs [aria-selected=true] { position: relative; background: var(--surface-raised); color: var(--text); font-weight: 600; }
+.tabs [aria-selected=true]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); }
+.tab-star { color: var(--accent-strong); }
+
+.document-title { min-height: 58px; padding: 8px 12px 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--border); background: var(--surface-raised); flex-shrink: 0; }
+.document-heading { min-width: 0; }
+.document-name { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.document-star { width: 24px; min-width: 24px; padding: 2px; border: 0; background: transparent; color: var(--faint); font-size:calc(15px * var(--ui-font-scale, 1)); }
+.document-star.starred { color: var(--accent-strong); }
+.document-title h1 { margin: 0 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size:calc(14px * var(--ui-font-scale, 1)); font-weight: 650; }
+.document-state { display: block; font-size:calc(10px * var(--ui-font-scale, 1)); color: var(--faint); }
+.document-state.dirty { color: var(--warning); }
+.document-toolbar { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.action-group, .view-switcher { display: flex; align-items: center; }
+.document-toolbar button, .document-more summary { min-height: 30px; padding: 5px 9px; font-size:calc(11px * var(--ui-font-scale, 1)); }
+.edit-actions { gap: 3px; }
+.compact-action { width: 30px; padding: 5px !important; font-size:calc(15px * var(--ui-font-scale, 1)) !important; border-color: transparent; background: transparent; }
+.save-action:not(:disabled) { color: white; background: var(--primary); border-color: var(--primary); }
+.save-action:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+.document-more { position: relative; }
+.document-more summary { display: grid; place-items: center; width: 30px; cursor: pointer; list-style: none; border-radius: var(--radius); }
+.document-more summary:hover { background: var(--surface-hover); }
+.document-more > div { position: absolute; top: 34px; right: 0; z-index: 5; width: 190px; display: grid; gap: 3px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); box-shadow: var(--shadow); }
+.document-more > div button { text-align: left; border-color: transparent; }
+.view-switcher { padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.view-switcher button { border: 0; background: transparent; color: var(--muted); }
+.view-switcher button[aria-pressed=true] { background: var(--surface-raised); color: var(--text); box-shadow: 0 1px 3px rgba(16, 42, 67, .12); font-weight: 600; }
+.editor-panel { display: flex; flex: 1; min-height: 0; }
+.editor-panel .source { width: 100%; }
+
+@media (max-width: 720px) {
+  .document-title { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .document-toolbar { width: 100%; }
+  .view-switcher { margin-left: auto; }
+}

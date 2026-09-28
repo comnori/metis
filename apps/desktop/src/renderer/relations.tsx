@@ -4,11 +4,12 @@ import type { Session, RelationIndex, WorkspaceRelation, SourceLocation } from '
 import './recovery.css';
 import { RelatedView } from './related';
 import { OperationStatus, type OperationPhase } from './operation-status';
-export function Relations({ session, initialPath, close, open }: { session: Session; initialPath?: string; close(): void; open(source: SourceLocation, revision?: string): void }) {
-  const dialog = useRef<HTMLDialogElement>(null), active = useRef(true), pending = useRef(false), token = useRef(0), paused = useRef(false);
+export function Relations({ session, initialPath, initialMode = 'list', close, open, embedded = false }: { session: Session; initialPath?: string; initialMode?: 'list' | 'graph'; close(): void; open(source: SourceLocation, revision?: string): void; embedded?: boolean }) {
+  const dialog = useRef<HTMLDialogElement>(null), panel = useRef<HTMLElement>(null), active = useRef(true), pending = useRef(false), token = useRef(0), paused = useRef(false);
   const [index, setIndex] = useState<RelationIndex>(), [selected, setSelected] = useState(initialPath ?? ''), [busy, setBusy] = useState(false), [status, setStatus] = useState('관계 조사 준비 중');
   const [phase, setPhase] = useState<OperationPhase>('idle');
   const scope = () => ({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch });
+  useEffect(() => { if (initialPath) setSelected(initialPath); }, [initialPath]);
   async function rebuild() {
     if (pending.current) return;
     pending.current = true; const generation = ++token.current;
@@ -26,7 +27,7 @@ export function Relations({ session, initialPath, close, open }: { session: Sess
     void window.metis.cancelRelations(scope()).catch(() => {});
   }
   useEffect(() => {
-    active.current = true; const node = dialog.current!; const restoreFocus = openDialog(node); void rebuild();
+    active.current = true; const restoreFocus = embedded ? () => {} : openDialog(dialog.current!); void rebuild();
     const timer = setInterval(() => { if (!paused.current) void rebuild(); }, 5000);
     return () => { active.current = false; token.current++; clearInterval(timer); restoreFocus(); void window.metis.cancelRelations(scope()).catch(() => {}); };
   }, []);
@@ -40,12 +41,12 @@ export function Relations({ session, initialPath, close, open }: { session: Sess
     <button onClick={() => { open({ relativePath: edge.relativePath, line: edge.revision ? edge.line : 1 }, edge.revision); close(); }}>출처: {edge.relativePath}:{edge.line}</button>
     <small> · 해석 문서: {edge.documentPath}</small>{edge.message && <p>{edge.message}</p>}
   </article>) : <p>확인된 관계가 없습니다.{index?.partial ? ' 전체 범위를 확인한 결과는 아닙니다.' : ''}</p>; }
-  return <dialog className="recovery-dialog" ref={dialog} aria-label="작업 공간 관계" onCancel={event => { event.preventDefault(); close(); }}>
-    <h2>작업 공간 관계</h2><p>저장본 기준 · 미저장 편집 제외 · 창이 열린 동안 5초 간격으로 재조사합니다.</p>
-    <div className="tools"><button disabled={busy} onClick={() => { paused.current = false; void rebuild(); }}>관계 다시 조사</button>{busy && <button onClick={cancel}>관계 조사 취소</button>}<button onClick={close}>닫기</button></div>
+  const content = <>
+    <div className="graph-view-heading"><div><span>KNOWLEDGE GRAPH</span><h2>그래프 뷰</h2></div><button onClick={close}>닫기</button></div><p>저장본 기준 · 미저장 편집 제외 · 창이 열린 동안 5초 간격으로 재조사합니다.</p>
+    <div className="tools"><button disabled={busy} onClick={() => { paused.current = false; void rebuild(); }}>관계 다시 조사</button>{busy && <button onClick={cancel}>관계 조사 취소</button>}</div>
     <OperationStatus task="관계 조사" phase={phase} message={status} next={phase === 'failed' || phase === 'cancelled' ? '기존 결과는 이전 조사 기준입니다. 관계 다시 조사로 갱신하세요.' : phase === 'partial' ? '조사 범위와 경고를 확인하세요.' : undefined} />
     <label>대상 문서<select aria-label="대상 문서" value={selected} onChange={event => setSelected(event.target.value)}>{choices.map(value => <option key={value}>{value}</option>)}</select></label>
-    <RelatedView key={selected} index={index} selected={selected} open={(source, revision) => { open(source, revision); close(); }} />
+    <RelatedView key={selected} index={index} selected={selected} initialMode={initialMode} open={(source, revision) => { open(source, revision); close(); }} />
     {index && <><p>{index.scanned}개 문서 해석 · {edges.length}개 관계 · {new Date(index.completedAt).toLocaleTimeString()} 기준</p>
       {index.warnings.length > 0 && <details><summary>조사 범위와 경고</summary>{index.warnings.map((warning, i) => <p key={i}>{warning}</p>)}</details>}
       <section aria-label="백링크"><h3>백링크</h3>{rows(backlinks)}</section>
@@ -53,5 +54,7 @@ export function Relations({ session, initialPath, close, open }: { session: Sess
       <section aria-label="포함 변경 영향"><h3>포함 변경 영향 · 상위 문서</h3>{parents.length ? parents.map(value => <p key={value}>{value}</p>) : <p>확인된 상위 문서가 없습니다.</p>}<p>중첩 포함의 상위 문서도 표시합니다. 속성·조건과 조사 한도에 따라 누락될 수 있습니다.</p></section>
       <section aria-label="참조 검사"><h3>작업 공간 참조 검사</h3>{rows(edges.filter(edge => edge.state !== 'resolved'))}</section>
     </>}
-  </dialog>;
+  </>;
+  if (embedded) return <section className="graph-workspace" ref={panel} aria-label="그래프 뷰">{content}</section>;
+  return <dialog className="recovery-dialog" ref={dialog} aria-label="작업 공간 관계" onCancel={event => { event.preventDefault(); close(); }}>{content}</dialog>;
 }

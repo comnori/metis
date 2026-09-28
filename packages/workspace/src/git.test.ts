@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { Workspace } from './index';
-import { GitWorkspace } from './git';
+import { GitWorkspace, initializeGitRepository, isOwnGitRepository } from './git';
 import { validate, textDiff } from '@metis/contracts';
 const roots: string[] = [];
 const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_'))), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null' };
@@ -17,6 +17,14 @@ async function fixture() {
 }
 afterEach(async () => { for (const root of roots.splice(0)) { if (path.dirname(root) !== os.tmpdir() || !path.basename(root).startsWith('metis-git-')) throw Error('Unsafe cleanup'); await fs.rm(root, { recursive: true, force: true }); } });
 describe('Git document investigation', () => {
+  it('detects only a repository rooted at the selected folder and initializes an empty folder', async () => {
+    const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'metis-git-')); roots.push(parent); command(parent, 'init');
+    const child = path.join(parent, 'child'); await fs.mkdir(child);
+    expect(await isOwnGitRepository(child)).toBe(false);
+    await initializeGitRepository(child);
+    expect(await isOwnGitRepository(child)).toBe(true);
+    expect((await fs.readdir(child)).filter(name => name !== '.git')).toEqual([]);
+  });
   it('distinguishes HEAD, staged, disk and retrieves immutable history using literal paths', async () => {
     const f = await fixture(), target = path.join(f.root, f.file.relativePath);
     await fs.writeFile(target, '= Old\n'); command(f.root, 'add', '--', f.file.relativePath); command(f.root, 'commit', '-m', 'original');

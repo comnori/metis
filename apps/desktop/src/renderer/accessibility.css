@@ -1,9 +1,9 @@
-:is(button,input,select,textarea,summary,a,[tabindex]):focus-visible{outline:3px solid #145e49;outline-offset:3px}
+:is(button,input,select,textarea,summary,a,[tabindex]):focus-visible{outline:3px solid var(--secondary);outline-offset:3px}
 button:disabled{cursor:not-allowed}
 .skip-editor{position:fixed;top:-100px;left:8px;z-index:20}.skip-editor:focus{top:8px}
 .search-controls{flex-wrap:wrap;gap:12px}.search-controls input{max-width:100%}
-.view-settings{width:min(640px,94vw)}.view-settings fieldset{margin:12px 0;min-width:0}.view-settings label{display:block;margin:8px 0}.view-settings input[type=range],.view-settings input[type=search]{width:100%}
-.search-dialog p,.search-result small,aside p,.breadcrumb,.document-title span,footer,.outline small,.empty p{color:#4d6257}
+.view-settings{width:min(640px,94vw)}.view-settings fieldset{margin:12px 0;min-width:0}.view-settings label{display:block;margin:8px 0}.view-settings input[type=range],.view-settings input[type=search],.view-settings input:not([type]),.view-settings select{width:100%}.view-settings fieldset .tools{display:flex;flex-wrap:wrap;gap:8px}
+.search-dialog p,.search-result small,aside p,.breadcrumb,.document-title span,footer,.outline small,.empty p{color:var(--muted)}
 dialog{overflow:auto}dialog fieldset{min-width:0}dialog input:not([type=checkbox]):not([type=radio]),dialog select{max-width:100%}
 @media(max-width:600px){.comparison{grid-template-columns:1fr}.recovery-dialog,.search-dialog{padding:14px}.search-controls{align-items:stretch}.search-controls label{width:100%}.change-scope dl{grid-template-columns:1fr}.app.app>header>div{gap:2px}.app.app>header button,.layout-menu summary{white-space:normal;margin-left:0}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}

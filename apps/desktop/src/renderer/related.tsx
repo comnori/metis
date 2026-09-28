@@ -2,8 +2,8 @@ import React, { useMemo, useRef, useState } from 'react';
 import { relatedDocuments } from '@metis/knowledge-index/related';
 import type { RelationIndex, SourceLocation } from '@metis/contracts';
 import './related.css';
-export function RelatedView({ index, selected, open }: { index?: RelationIndex; selected: string; open(source: SourceLocation, revision?: string): void }) {
-  const [mode, setMode] = useState<'list' | 'graph'>('list'), [focused, setFocused] = useState('');
+export function RelatedView({ index, selected, initialMode = 'list', open }: { index?: RelationIndex; selected: string; initialMode?: 'list' | 'graph'; open(source: SourceLocation, revision?: string): void }) {
+  const [mode, setMode] = useState<'list' | 'graph'>(initialMode), [focused, setFocused] = useState('');
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const drag = useRef<{ path: string; x: number; y: number; startX: number; startY: number } | undefined>(undefined);
   const model = useMemo(() => relatedDocuments(index?.edges ?? [], selected, 12), [index, selected]);
@@ -22,7 +22,7 @@ export function RelatedView({ index, selected, open }: { index?: RelationIndex; 
         <div className="relation-graph" aria-label="관련 문서 그래프">
           <svg viewBox="0 0 900 500" preserveAspectRatio="none" aria-hidden="true">{model.documents.map((doc, i) => {
             const center = position(selected, 0), node = position(doc.path, i + 1);
-            return <line key={doc.path} x1={center.x} y1={center.y} x2={node.x} y2={node.y} stroke="#8ca69a" strokeWidth="2" strokeDasharray={doc.reasons.every(reason => reason.kind === 'common') ? '6 5' : undefined} />;
+            return <line key={doc.path} x1={center.x} y1={center.y} x2={node.x} y2={node.y} stroke="var(--secondary)" strokeWidth="2" strokeDasharray={doc.reasons.every(reason => reason.kind === 'common') ? '6 5' : undefined} />;
           })}</svg>
           {names.map((name, i) => { const point = position(name, i); return <button key={name} className="graph-node" style={{ left: `${point.x / 9}%`, top: `${point.y / 5}%` }} aria-label={`그래프 문서: ${name}`} aria-pressed={focused === name} onClick={() => setFocused(name)} onKeyDown={event => {
             if (event.nativeEvent.isComposing || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;

@@ -25,6 +25,23 @@ test('attribute context follows body overrides and inactive declarations', async
   expect(result.attributes.find(a => a.value === 'hidden')?.applied).toBe(false);
   expect(result.attributes).toContainEqual(expect.objectContaining({ value: '(해제)', applied: true }));
 });
+test('highlights supported source languages at conversion time and preserves unsupported source', async () => {
+  const root = await fixture();
+  const result = await analyze(root, 'main.adoc', '[source,javascript]\n----\nconst value = "<safe>";\n----\n\n[source,not-a-language]\n----\n<plain>&\n----');
+  expect(result.html).toContain('hljs-keyword');
+  expect(result.html).toContain('&lt;safe&gt;');
+  expect(result.html).toContain('&lt;plain&gt;&amp;');
+  expect(result.diagnostics).toContainEqual(expect.objectContaining({ relativePath: 'main.adoc', message: '지원하지 않는 코드 언어: not-a-language' }));
+});
+test('converts mermaid blocks to bounded renderer placeholders with source metadata', async () => {
+  const root = await fixture();
+  const result = await analyze(root, 'main.adoc', '= Diagram\n\n[#system]\n.Metis flow\n[mermaid]\n----\nflowchart LR\n  A --> B\n----');
+  expect(result.html).toContain('class="metis-mermaid"');
+  expect(result.html).toContain('id="system"');
+  expect(result.html).toContain('data-mermaid-path="main.adoc"');
+  expect(result.html).toContain('Metis flow');
+  expect(result.html).toContain('flowchart LR');
+});
 test('reference failures distinguish missing and blocked targets with source locations', async () => {
   const root = await fixture();
   const result = await analyze(root, 'docs/main.adoc', 'xref:../shared/part.adoc#absent[] xref:missing.adoc[] xref:../../escape.adoc[]\n\ninclude::../shared/part.adoc[]');

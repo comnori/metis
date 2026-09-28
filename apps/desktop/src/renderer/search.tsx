@@ -1,19 +1,20 @@
-import { openDialog } from './accessibility';
+import { openDialog, useSearchDialogEscape } from './accessibility';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Session, SearchHit, SearchRequest, SearchResults } from '@metis/contracts';
 import './search.css';
 import { OperationStatus, type OperationPhase } from './operation-status';
 const kinds = { text: '본문', file: '파일', section: '절', anchor: '앵커', attribute: '속성' };
 export interface SearchMemory { query?: string; mode?: SearchRequest['mode']; caseSensitive?: boolean; path?: string; kind?: string }
-export function Search({ session, initialMode, memory, close, open }: { session: Session; initialMode: SearchRequest['mode']; memory: SearchMemory; close(): void; open(hit: SearchHit): void }) {
+export function Search({ session, initialMode, memory, close, open, embedded = false }: { session: Session; initialMode: SearchRequest['mode']; memory: SearchMemory; close(): void; open(hit: SearchHit): void; embedded?: boolean }) {
+  const escape = useSearchDialogEscape(close);
   const [query, setQuery] = useState(memory.query ?? ''), [mode, setMode] = useState(memory.mode ?? initialMode), [caseSensitive, setCase] = useState(memory.caseSensitive ?? false), [retry, setRetry] = useState(0);
   const [pathFilter, setPathFilter] = useState(memory.path ?? ''), [kindFilter, setKindFilter] = useState(memory.kind ?? '');
   useEffect(() => { Object.assign(memory, { query, mode, caseSensitive, path: pathFilter, kind: kindFilter }); }, [query, mode, caseSensitive, pathFilter, kindFilter]);
   const [results, setResults] = useState<SearchResults>(), [status, setStatus] = useState('검색어를 입력하세요.'), [running, setRunning] = useState(false);
   const [phase, setPhase] = useState<OperationPhase>('idle');
-  const dialog = useRef<HTMLDialogElement>(null), generation = useRef(0);
+  const container = useRef<HTMLElement>(null), generation = useRef(0);
   const scope = () => ({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch });
-  useEffect(() => { const node = dialog.current!; const restoreFocus = openDialog(node); return () => restoreFocus(); }, []);
+  useEffect(() => { if (embedded) return; const node = container.current as HTMLDialogElement; const restoreFocus = openDialog(node); return () => restoreFocus(); }, [embedded]);
   useEffect(() => {
     const token = ++generation.current;
     setResults(undefined);
@@ -35,15 +36,15 @@ export function Search({ session, initialMode, memory, close, open }: { session:
   }, [query, mode, caseSensitive, retry, session.workspaceId, session.workspaceEpoch]);
   function cancel() { generation.current++; setPhase('cancelled'); setRunning(false); setStatus('검색을 취소했습니다. 다시 검색할 수 있습니다.'); void window.metis.cancelSearch(scope()).catch(() => {}); }
   const hits = results?.hits.filter(hit => hit.relativePath.toLocaleLowerCase().includes(pathFilter.toLocaleLowerCase()) && (!kindFilter || hit.kind === kindFilter)) ?? [];
-  return <dialog className="search-dialog" ref={dialog} aria-labelledby="search-title" onCancel={event => { event.preventDefault(); close(); }}>
+  const content = <>
     <div className="search-heading"><h2 id="search-title">{mode === 'files' ? '빠른 열기' : '작업 공간 검색'}</h2><button onClick={close} aria-label="검색 닫기">닫기</button></div>
     <p>저장된 .adoc 기준 · 미저장 편집 제외 · 외부 변경은 다시 검색하면 반영됩니다.</p>
     <div className="search-controls"><label>검색 모드<select value={mode} onChange={event => setMode(event.target.value as SearchRequest['mode'])}><option value="text">본문</option><option value="files">파일 · 빠른 열기</option><option value="symbols">심볼 · 절</option></select></label>
       <label><input type="checkbox" checked={caseSensitive} onChange={event => setCase(event.target.checked)} />대소문자 구분</label></div>
-    <label>검색어<input autoFocus type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); dialog.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
+    <label>검색어<input autoFocus={!embedded} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); container.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
     <div className="tools"><button onClick={() => setRetry(value => value + 1)}>다시 검색</button>{running && <button onClick={cancel}>검색 취소</button>}</div>
     <div className="search-controls"><label>결과 경로 필터<input value={pathFilter} maxLength={200} onChange={event => setPathFilter(event.target.value)} /></label><label>결과 종류<select value={kindFilter} onChange={event => setKindFilter(event.target.value)}><option value="">전체</option>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><button onClick={() => { setPathFilter(''); setKindFilter(''); }}>필터 초기화</button></div>
-    <p>필터는 받은 결과 안에서 적용됩니다. 검색어에서 아래 방향키로 결과 이동, 위·아래/Home/End로 선택, Enter로 열 수 있습니다.</p>
+    <p>Escape로 검색어를 지우지 않고 창을 닫습니다. 글자 조합 중에는 창을 유지합니다. 필터는 받은 결과 안에서 적용됩니다. 검색어에서 아래 방향키로 결과 이동, 위·아래/Home/End로 선택, Enter로 열 수 있습니다.</p>
     <OperationStatus task="검색" phase={phase} message={status} next={phase === 'failed' || phase === 'cancelled' ? '검색어와 모드를 확인하고 다시 검색을 누르세요.' : phase === 'partial' ? '검색 범위 안내를 확인하세요. 필터는 받은 결과에만 적용됩니다.' : undefined} />
     {mode === 'symbols' && <p>각 파일을 단독 문서로 해석한 절·앵커·속성입니다. 상위 문서에서 물려받는 조건은 탐색 패널에서 확인하세요.</p>}
     {results && <><p>{results.scanned}개 문서 확인 · {results.hits.length}개 결과 · {new Date(results.completedAt).toLocaleTimeString()} 기준{results.partial ? ' · 일부 결과' : ''}</p>
@@ -54,9 +55,12 @@ export function Search({ session, initialMode, memory, close, open }: { session:
         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.search-result')], index = buttons.indexOf(event.target as HTMLButtonElement);
         if (index < 0) return;
         event.preventDefault();
-        if (event.key === 'ArrowUp' && index === 0) { dialog.current?.querySelector<HTMLInputElement>('input[type=search]')?.focus(); return; }
+        if (event.key === 'ArrowUp' && index === 0) { container.current?.querySelector<HTMLInputElement>('input[type=search]')?.focus(); return; }
         buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : Math.min(buttons.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))].focus();
-      }}>{hits.map((hit, index) => <button className="search-result" key={`${hit.relativePath}:${hit.kind}:${hit.line}:${index}`} onClick={() => { open(hit); close(); }}>
+      }}>{hits.map((hit, index) => <button className="search-result" key={`${hit.relativePath}:${hit.kind}:${hit.line}:${index}`} onClick={() => { open(hit); if (!embedded) close(); }}>
         <strong>{kinds[hit.kind]} · {hit.label}</strong><small>{hit.relativePath}:{hit.line}</small><span>{hit.context}</span></button>)}</div></>}
-  </dialog>;
+  </>;
+  return embedded
+    ? <section className="search-panel" ref={node => { container.current = node; }} aria-labelledby="search-title">{content}</section>
+    : <dialog {...escape} className="search-dialog" ref={node => { container.current = node; }} aria-labelledby="search-title" onCancel={event => { event.preventDefault(); close(); }}>{content}</dialog>;
 }

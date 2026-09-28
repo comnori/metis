@@ -6,7 +6,7 @@ import type { ContextRequest, ContextBundle } from '@metis/contracts';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { PreviewWorker } from './preview-worker';
 import type { OperationRequest, RelationIndex, GitVersionRequest } from '@metis/contracts';
-import { GitWorkspace } from '@metis/workspace';
+import { GitWorkspace, PreviewStylesheets, initializeGitRepository, isOwnGitRepository } from '@metis/workspace';
 import { ExternalEditor, LaunchQueue } from '@metis/workspace';
 import type { LaunchRequest, Session } from '@metis/contracts';
 import { promises as fs } from 'node:fs';
@@ -34,6 +34,7 @@ else {
   });
 }
 const recoveryRoot = path.join(app.getPath('userData'), 'recovery');
+const previewStylesheets = new PreviewStylesheets(path.join(app.getPath('userData'), 'preview-stylesheets.json'));
 const workspace = new Workspace(recoveryRoot);
 const fileChanges = new FileChanges(workspace);
 const git = new GitWorkspace(workspace);
@@ -61,6 +62,12 @@ if (ownsLock) app.whenReady().then(() => {
     try { await recents.record(root); } catch { session.warning = '폴더는 열었지만 최근 작업 공간 기록을 저장하지 못했습니다.'; }
     return session;
   };
+  const stylesheetKey = (request: ScopedRequest) => {
+    workspace.analysisRoot(request);
+    const key = currentSession?.viewKey;
+    if (!key) throw new BoundaryError('NO_WORKSPACE', '사용자 CSS를 연결할 작업 공간을 먼저 여세요.');
+    return key;
+  };
   const preview = new PreviewWorker(path.join(__dirname, '../utility/utility.cjs'));
   app.on('before-quit', () => { resetAi(); preview.stop(); searchWorker.stop(); relationsWorker.stop(); contextWorker.stop(); semanticWorker.stop(); });
   const entry = path.join(__dirname, '../renderer/index.html');
@@ -83,7 +90,7 @@ if (ownsLock) app.whenReady().then(() => {
           throw new BoundaryError('ACCESS_DENIED', '허용되지 않은 요청입니다.');
         const request = validate(method, payload);
         requestId = request.requestId;
-        if (selecting && ['applyLaunch', 'configureEditor', 'openExternal', 'externalDecision', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'openWorkspace', 'createWorkspace', 'openRecentWorkspace', 'closeWorkspace', 'createDirectory', 'createDocument', 'saveDocument'].includes(method))
+        if (selecting && ['applyLaunch', 'configureEditor', 'selectPreviewStylesheet', 'openExternal', 'externalDecision', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'openWorkspace', 'createWorkspace', 'openRecentWorkspace', 'closeWorkspace', 'createDirectory', 'createDocument', 'saveDocument'].includes(method))
           throw new BoundaryError('BUSY', '진행 중인 폴더 작업을 완료해 주세요.');
         let value: unknown;
         switch (method) {
@@ -120,6 +127,19 @@ if (ownsLock) app.whenReady().then(() => {
             try { value = method === 'gitStatus' ? await git.status(request as ScopedRequest) : method === 'gitFile' ? await git.file(request as PathRequest) : await git.version(request as GitVersionRequest); }
             finally { gitBusy = false; }
             break;
+          case 'selectPreviewStylesheet': {
+            selecting = true;
+            try {
+              const key = stylesheetKey(request as ScopedRequest);
+              const selected = await dialog.showOpenDialog(window, { title: 'AsciiDoc 사용자 CSS 선택', properties: ['openFile'], filters: [{ name: 'CSS 스타일시트', extensions: ['css'] }] });
+              if (selected.canceled || !selected.filePaths[0]) throw new BoundaryError('CANCELLED', '사용자 CSS 선택을 취소했습니다.');
+              workspace.analysisRoot(request as ScopedRequest);
+              value = await previewStylesheets.select(key, selected.filePaths[0]);
+            } finally { selecting = false; }
+            break;
+          }
+          case 'readPreviewStylesheet': value = await previewStylesheets.read(stylesheetKey(request as ScopedRequest)); break;
+          case 'clearPreviewStylesheet': value = await previewStylesheets.clear(stylesheetKey(request as ScopedRequest)); break;
           case 'semanticDiff': {
             const scoped = request as SemanticDiffRequest; value = await semanticWorker.analyze(workspace.analysisRoot(scoped), scoped); workspace.analysisRoot(scoped); break;
           }
@@ -230,7 +250,20 @@ if (ownsLock) app.whenReady().then(() => {
               const selection = await dialog.showOpenDialog(window, { title: method === 'createWorkspace' ? '새 작업 공간을 만들 상위 폴더 선택' : '작업 공간 열기', properties: ['openDirectory'] });
               if (selection.canceled || !selection.filePaths[0]) throw new BoundaryError('CANCELLED', '폴더 선택을 취소했습니다.');
               const root = method === 'createWorkspace' ? await createWorkspaceFolder(selection.filePaths[0], (request as NamedRequest).name) : selection.filePaths[0];
-              value = await open(root);
+              let gitWarning = '';
+              if (method === 'createWorkspace') {
+                let ownRepository = false;
+                try { ownRepository = await isOwnGitRepository(root); }
+                catch (error) { gitWarning = error instanceof Error ? error.message : 'Git 저장소 상태를 확인하지 못했습니다.'; }
+                if (!ownRepository && !gitWarning) {
+                  const answer = await dialog.showMessageBox(window, { type: 'question', title: 'Git 저장소 초기화', message: '새 작업 공간을 Git 저장소로 초기화할까요?', detail: '이 폴더 자체에 .git 저장소를 만듭니다. 파일 추가나 커밋은 수행하지 않습니다.', buttons: ['Git 초기화', '건너뛰기'], defaultId: 1, cancelId: 1 });
+                  if (answer.response === 0) try { await initializeGitRepository(root); }
+                  catch (error) { gitWarning = error instanceof Error ? error.message : 'Git 저장소를 초기화하지 못했습니다.'; }
+                }
+              }
+              const session = await open(root);
+              if (gitWarning) session.warning = [session.warning, gitWarning].filter(Boolean).join(' ');
+              value = session;
             } finally { selecting = false; }
             break;
           }

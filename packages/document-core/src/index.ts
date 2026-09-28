@@ -7,6 +7,7 @@ import { semanticObserver } from './semantics';
 import { sourceCursor } from './source-cursor';
 import { Workspace } from '@metis/workspace';
 import { BoundaryError, type Analysis, type Diagnostic, type OutlineEntry } from '@metis/contracts';
+import { mermaidBlockProcessor, MetisHighlighter } from './preview-extensions';
 const maxBytes = 4 * 1024 * 1024;
 export async function analyze(root: string, relativePath: string, text: string, resolveReferences = true, includeSources = true, context?: { sources: ReadonlyMap<string, DocumentSnapshot>; blocks: SemanticBlock[]; includeBlockedMessage?: string }): Promise<Analysis> {
   const workspace = new Workspace();
@@ -23,6 +24,7 @@ export async function analyze(root: string, relativePath: string, text: string, 
   const registry = Extensions.create();
   const semantic = semanticObserver(location);
   registry.preprocessor(function () { this.process((doc, reader) => semantic.observe(doc, reader)); });
+  registry.block(mermaidBlockProcessor(diagnostics, location));
   registry.includeProcessor(function () {
     this.handles(() => true);
     this.process(async (_doc, reader, target, attrs) => {
@@ -83,7 +85,8 @@ export async function analyze(root: string, relativePath: string, text: string, 
   const logger = new MemoryLogger();
   LoggerManager.setLogger(logger);
   const doc = await load(text, { safe: 'secure', base_dir: root, sourcemap: true, standalone: false, extension_registry: registry,
-    attributes: { docfile: path.join(root, relativePath), docname: path.posix.basename(relativePath, '.adoc'), 'showtitle': '', 'allow-uri-read!': '', 'docinfo!': '' } });
+    syntax_highlighters: { 'metis-highlight': new MetisHighlighter(diagnostics, location) },
+    attributes: { docfile: path.join(root, relativePath), docname: path.posix.basename(relativePath, '.adoc'), 'showtitle': '', 'source-highlighter': 'metis-highlight', 'allow-uri-read!': '', 'docinfo!': '' } });
   const outline: OutlineEntry[] = [];
   semantic.finishParse();
   const visit = (node: AbstractBlock) => {
