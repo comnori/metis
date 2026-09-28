@@ -5,8 +5,8 @@ import os from 'node:os';
 import { Workspace, Recovery } from './index';
 import { validate } from '@metis/contracts';
 const roots: string[] = [];
-async function fixture() { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'metis-m1-06-')); roots.push(root); const recoveryRoot = path.join(root, 'recovery'); const workspaceRoot = path.join(root, 'workspace'); await fs.mkdir(workspaceRoot); const workspace = new Workspace(recoveryRoot); const session = await workspace.open(workspaceRoot); const scope = { requestId: 'test', workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch }; return { root, recoveryRoot, workspaceRoot, workspace, scope, recovery: new Recovery(recoveryRoot) }; }
-afterEach(async () => { for (const root of roots.splice(0)) { if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('metis-m1-06-')) throw new Error('Cleanup boundary'); await fs.rm(root, { recursive: true, force: true }); } });
+async function fixture() { const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'metis-m1-06-')); roots.push(root); const recoveryRoot = path.join(root, 'recovery'); const workspaceRoot = path.join(root, 'workspace'); await fs.mkdir(workspaceRoot); const workspace = new Workspace(recoveryRoot); const session = await workspace.open(workspaceRoot); const scope = { requestId: 'test', workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch }; return { root, recoveryRoot, workspaceRoot, workspace, scope, recovery: new Recovery(recoveryRoot) }; }
+afterEach(async () => { const temporaryRoot = await fs.realpath(os.tmpdir()); for (const root of roots.splice(0)) { if (path.dirname(root) !== temporaryRoot || !path.basename(root).startsWith('metis-m1-06-')) throw new Error('Cleanup boundary'); await fs.rm(root, { recursive: true, force: true }); } });
 test('draft survives service restart and missing source parent; restore never overwrites', async () => {
   const f = await fixture();
   const id = await f.workspace.checkpoint({ ...f.scope, relativePath: 'deleted/note.adoc', text: 'unsaved 한글' });

@@ -10,6 +10,14 @@ const parent = path.join(run, 'parent'); await mkdir(parent, { recursive: true }
 const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
 const packaged = process.argv[2];
 const launch = () => electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
+const openWorkspaceSwitcher = async page => {
+  const switcher = page.getByLabel('Metis 작업 공간 전환');
+  if (!(await switcher.evaluate(element => element.parentElement?.hasAttribute('open')))) await switcher.click();
+};
+const closeWorkspaceSwitcher = async page => {
+  const switcher = page.getByLabel('Metis 작업 공간 전환');
+  if (await switcher.evaluate(element => element.parentElement?.hasAttribute('open'))) await switcher.click();
+};
 let app = await launch(); const checks = [];
 try {
   let page = await app.firstWindow();
@@ -23,7 +31,7 @@ try {
   await page.getByLabel('폴더 이름').fill('자료'); await page.getByRole('button', { name: '만들기', exact: true }).click();
   await page.getByRole('button', { name: '▸자료', exact: true }).click();
   await page.getByRole('button', { name: '상위 폴더', exact: true }).click();
-  await page.getByRole('button', { name: '▸자료', exact: true }).waitFor(); checks.push('nested folder creation and navigation');
+  await page.getByRole('button', { name: '▾자료', exact: true }).waitFor(); checks.push('nested folder creation and navigation');
   await page.getByRole('button', { name: '새 폴더', exact: true }).click();
   await page.getByLabel('폴더 이름').fill('자료'); await page.getByRole('button', { name: '만들기', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '이미 있습니다' }).waitFor();
@@ -33,6 +41,7 @@ try {
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   await page.getByRole('heading', { name: 'note.adoc', exact: true }).waitFor(); checks.push('manual refresh and source read');
   await app.close(); app = await launch(); page = await app.firstWindow();
+  await openWorkspaceSwitcher(page);
   await page.getByRole('button', { name: '한글 공간', exact: true }).click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).waitFor(); checks.push('recent workspace survives restart and reopens');
   await uiCommand(page, '폴더 닫기');
@@ -40,11 +49,14 @@ try {
   await rename(created, path.join(parent, '옮긴 공간'));
   await page.getByRole('button', { name: '한글 공간', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '찾을 수 없습니다' }).waitFor();
+  await openWorkspaceSwitcher(page);
   await page.getByRole('button', { name: '다른 위치 선택', exact: true }).waitFor(); checks.push('missing recent folder recovery actions');
   await app.evaluate(({ dialog }, moved) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [moved] }); }, path.join(parent, '옮긴 공간'));
   await page.getByRole('button', { name: '다른 위치 선택', exact: true }).click();
+  await closeWorkspaceSwitcher(page);
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   await page.getByRole('heading', { name: 'note.adoc', exact: true }).waitFor(); checks.push('open moved folder through recovery action');
+  await openWorkspaceSwitcher(page);
   await page.getByRole('button', { name: '한글 공간 최근 목록에서 제거', exact: true }).click();
   await page.getByRole('status').filter({ hasText: '폴더는 유지' }).waitFor();
   assert.equal(await readFile(path.join(parent, '옮긴 공간', 'note.adoc'), 'utf8'), '= M1-01\n원본');

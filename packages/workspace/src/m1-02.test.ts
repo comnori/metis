@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const roots: string[] = [];
 async function setup(text = '= Original\nbody') {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'metis-m1-02-')); roots.push(root);
+  const root = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'metis-m1-02-')); roots.push(root);
   const folder = path.join(root, 'workspace'); await fs.mkdir(folder);
   const file = path.join(folder, 'note.adoc'); await fs.writeFile(file, text);
   const recovery = path.join(root, 'recovery'); const workspace = new Workspace(recovery);
@@ -19,8 +19,9 @@ async function setup(text = '= Original\nbody') {
 }
 afterEach(async () => {
   vi.restoreAllMocks();
+  const temporaryRoot = await fs.realpath(os.tmpdir());
   for (const root of roots.splice(0)) {
-    if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('metis-m1-02-')) throw new Error('Unsafe cleanup');
+    if (path.dirname(root) !== temporaryRoot || !path.basename(root).startsWith('metis-m1-02-')) throw new Error('Unsafe cleanup');
     await fs.rm(root, { recursive: true, force: true });
   }
 });
