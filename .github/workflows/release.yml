@@ -42,6 +42,10 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Release tag must be a stable SemVer: $RELEASE_TAG" >&2
+            exit 1
+          fi
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
           TAG_VERSION="${RELEASE_TAG#v}"
           if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
@@ -98,16 +102,66 @@ jobs:
     name: Publish release
     needs: package
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     permissions:
       contents: write
 
     steps:
+      - name: Checkout release automation
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       - name: Download packaged applications
         uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: release-assets
           merge-multiple: true
+
+      - name: Find previous stable release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          PREVIOUS_TAG="$(gh release list \
+            --exclude-drafts \
+            --exclude-pre-releases \
+            --limit 1 \
+            --json tagName \
+            --jq '.[0].tagName // ""')"
+          echo "PREVIOUS_TAG=$PREVIOUS_TAG" >> "$GITHUB_ENV"
+
+      - name: Verify release artifacts
+        id: security
+        continue-on-error: true
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: |
+          node scripts/virustotal-release.mjs \
+            --assets release-assets \
+            --output release-evidence \
+            --current-tag "$RELEASE_TAG" \
+            --previous-tag "$PREVIOUS_TAG"
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-security-${{ github.ref_name }}
+          path: release-evidence
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce security verification
+        if: steps.security.outcome != 'success'
+        shell: bash
+        run: |
+          echo "Release security verification failed; the GitHub Release will not be created." >&2
+          exit 1
 
       - name: Publish GitHub Release
         shell: bash
@@ -116,7 +170,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" release-assets/*.zip \
+          gh release create "$RELEASE_TAG" \
+            release-assets/*.zip \
+            release-evidence/SHA256SUMS.txt \
+            release-evidence/virustotal-results.json \
             --verify-tag \
             --title "${RELEASE_TAG#v}" \
+            --notes-file release-evidence/release-notes.md \
             --generate-notes

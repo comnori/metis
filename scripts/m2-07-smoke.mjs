@@ -1,5 +1,5 @@
 import { uiCommand } from './ui-command.mjs';
-import { _electron as electron } from 'playwright';
+import { electron } from './test-electron.mjs';
 import executablePath from 'electron';
 import { mkdir, writeFile, readFile, readdir, unlink } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';

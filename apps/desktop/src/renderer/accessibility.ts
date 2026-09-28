@@ -17,3 +17,19 @@ export function openDialog(node: HTMLDialogElement) {
 export function platformShortcut(shortcut: string) {
   return shortcut.replace('Ctrl/Cmd', /Mac|iPhone|iPad/.test(navigator.platform) ? 'Cmd' : 'Ctrl');
 }
+import { useRef, type KeyboardEvent } from 'react';
+
+/** Opt-in for dismissible search dialogs; prevent native search-input clearing. */
+export function useSearchDialogEscape(close: () => void) {
+  const composing = useRef(false);
+  return {
+    onCompositionStartCapture: () => { composing.current = true; },
+    onCompositionEndCapture: () => { composing.current = false; },
+    onKeyDownCapture: (event: KeyboardEvent<HTMLDialogElement>) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!composing.current && !event.nativeEvent.isComposing && event.keyCode !== 229) close();
+    },
+  };
+}

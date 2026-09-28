@@ -1,4 +1,4 @@
-import { _electron as electron } from 'playwright';
+import { electron } from './test-electron.mjs';
 import { uiCommand } from './ui-command.mjs';
 import executablePath from 'electron';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
@@ -13,7 +13,7 @@ const launch = () => electron.launch({ executablePath: packaged || executablePat
 let app = await launch(); const checks = [];
 try {
   let page = await app.firstWindow();
-  await app.evaluate(({ dialog }, parent) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [parent] }); }, parent);
+  await app.evaluate(({ dialog }, parent) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [parent] }); dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false }); }, parent);
   await uiCommand(page, '새 작업 공간');
   await page.getByLabel('폴더 이름').fill('한글 공간');
   await page.getByRole('button', { name: '상위 폴더 선택', exact: true }).click();

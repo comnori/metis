@@ -1,4 +1,4 @@
-import { _electron as electron } from 'playwright';
+import { electron } from './test-electron.mjs';
 import executablePath from 'electron';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';

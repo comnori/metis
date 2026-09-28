@@ -17,7 +17,7 @@ try {
 }
 if (process.exitCode) { console.log(`Integration report: ${run}`); } else {
 await save();
-for (const name of ['smoke', ...Array.from({ length: 8 }, (_, i) => `m1-0${i + 1}-smoke`), 'm2-01-smoke', 'm2-02-smoke', 'm2-03-smoke', 'm2-04-smoke', 'm2-05-smoke', 'm2-06-smoke', 'm2-07-smoke', 'm3-01-smoke', 'm3-02-smoke', 'm3-03-smoke', 'm3-04-smoke', 'm3-04-ai-smoke', 'm3-05-smoke', 'm3-06-smoke', 'm3-07-smoke', 'm4-02-smoke', 'm4-03-smoke', 'm4-04-smoke', 'm4-05-smoke', 'm4-06-smoke', 'm4-07-smoke']) {
+for (const name of ['smoke', ...Array.from({ length: 8 }, (_, i) => `m1-0${i + 1}-smoke`), 'm2-01-smoke', 'm2-02-smoke', 'm2-03-smoke', 'm2-04-smoke', 'm2-05-smoke', 'm2-06-smoke', 'm2-07-smoke', 'm3-01-smoke', 'm3-02-smoke', 'm3-03-smoke', 'm3-04-smoke', 'm3-04-ai-smoke', 'm3-05-smoke', 'm3-06-smoke', 'm3-07-smoke', 'm4-02-smoke', 'm4-03-smoke', 'm4-04-smoke', 'm4-05-smoke', 'm4-06-smoke', 'm4-07-smoke', 'ux-escape-smoke']) {
   const started = Date.now();
   report.activeSuite = name; await save();
   const result = await runLogged(process.execPath, [path.join(root, 'scripts', `${name}.mjs`), ...(executable ? [executable] : [])], { cwd: root, logPath: path.join(run, `${name}.log`) });

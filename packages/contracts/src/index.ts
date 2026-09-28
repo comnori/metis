@@ -7,7 +7,7 @@ import type { SemanticDiffRequest, SemanticDiffResult } from './semantic-diff';
 export type { SemanticDiffRequest, SemanticDiffResult, SemanticUnit, SemanticChange } from './semantic-diff';
 import type { ContextRequest, ContextBundle } from './context';
 export type { ContextRequest, ContextBundle, ContextDocument, SemanticBlock, ValidationIssue, ValidationReport } from './context';
-export const protocolVersion = 1;
+export const protocolVersion = 2;
 export { textDiff } from './diff';
 export { findCommands, executeCommand, type Command } from './commands';
 export { ExtensionRuntime, type ExtensionApi, type ExtensionDefinition, type ExtensionModel, type ExtensionViewData } from './extensions';
@@ -19,6 +19,7 @@ export const channels = {
   buildContext: 'metis:build-context', cancelContext: 'metis:cancel-context',
   configureEditor: 'metis:configure-editor', externalDecision: 'metis:external-decision', openExternal: 'metis:open-external', pendingLaunch: 'metis:pending-launch', applyLaunch: 'metis:apply-launch', dismissLaunch: 'metis:dismiss-launch',
   gitStatus: 'metis:git-status', gitFile: 'metis:git-file', gitVersion: 'metis:git-version',
+  selectPreviewStylesheet: 'metis:select-preview-stylesheet', readPreviewStylesheet: 'metis:read-preview-stylesheet', clearPreviewStylesheet: 'metis:clear-preview-stylesheet',
   workspaceRelations: 'metis:workspace-relations', cancelRelations: 'metis:cancel-relations',
   fileOperationStatus: 'metis:file-operation-status', cancelFileReview: 'metis:cancel-file-review',
   previewFileChange: 'metis:preview-file-change', applyFileChange: 'metis:apply-file-change',
@@ -54,6 +55,7 @@ export interface GitStatus { changes: GitChange[]; partial: boolean }
 export interface GitCommit { id: string; date: string; subject: string }
 export interface GitFile { relativePath: string; head?: string; staged?: string; disk?: DocumentSnapshot; history: GitCommit[]; warnings: string[] }
 export interface GitVersion { relativePath: string; commit: string; text: string }
+export interface PreviewStylesheet { name?: string; css?: string; active: boolean; warning?: string }
 export interface SaveRequest extends PathRequest { revision: string; text: string }
 export interface AnalyzeRequest extends PathRequest { text: string }
 export interface FileChangeRequest extends PathRequest { action: 'move' | 'delete'; destination: string }
@@ -104,6 +106,9 @@ export interface Api {
   gitStatus(request: ScopedRequest): Promise<Result<GitStatus>>;
   gitFile(request: PathRequest): Promise<Result<GitFile>>;
   gitVersion(request: GitVersionRequest): Promise<Result<GitVersion>>;
+  selectPreviewStylesheet(request: ScopedRequest): Promise<Result<PreviewStylesheet>>;
+  readPreviewStylesheet(request: ScopedRequest): Promise<Result<PreviewStylesheet>>;
+  clearPreviewStylesheet(request: ScopedRequest): Promise<Result<PreviewStylesheet>>;
   workspaceRelations(request: ScopedRequest): Promise<Result<RelationIndex>>;
   cancelRelations(request: ScopedRequest): Promise<Result<null>>;
   fileOperationStatus(request: OperationRequest): Promise<Result<OperationStatus>>;
@@ -155,7 +160,7 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
   }
   if (method === 'gitVersion' && (typeof value.commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.commit))) return fail();
   if (['gitFile', 'gitVersion'].includes(method) && (typeof value.relativePath !== 'string' || !/\.adoc$/i.test(value.relativePath) || value.relativePath.split('/').some(part => part.toLowerCase() === '.git'))) return fail();
-  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
+  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const path = ['generateProposal', 'semanticDiff', 'openExternal', 'gitFile', 'gitVersion', 'previewFileChange', 'copyDocument', 'checkpointDocument', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const named = ['copyDocument', 'createWorkspace', 'createDirectory', 'createDocument'].includes(method);
   const recent = method === 'openRecentWorkspace' || method === 'removeRecentWorkspace';
