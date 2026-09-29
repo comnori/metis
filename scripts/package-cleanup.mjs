@@ -5,7 +5,8 @@ export async function cleanupPackages(root, currentStage) {
   const runs = path.join(await realpath(root), '.pre04-runs');
   if (await realpath(runs) !== runs) throw new Error('Package directory must not be a link');
   const current = path.basename(currentStage);
-  if (path.resolve(currentStage) !== path.join(runs, current) || !/^package-\d+$/.test(current)) {
+  // Validate against the caller's root spelling; deletion uses the canonical root.
+  if (path.resolve(currentStage) !== path.resolve(root, '.pre04-runs', current) || !/^package-\d+$/.test(current)) {
     throw new Error('Invalid current package directory');
   }
   const entries = (await readdir(runs, { withFileTypes: true }))

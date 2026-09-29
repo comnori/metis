@@ -25,7 +25,7 @@ export function useSearchDialogEscape(close: () => void) {
   return {
     onCompositionStartCapture: () => { composing.current = true; },
     onCompositionEndCapture: () => { composing.current = false; },
-    onKeyDownCapture: (event: KeyboardEvent<HTMLDialogElement>) => {
+    onKeyDownCapture: (event: KeyboardEvent<HTMLElement>) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       event.stopPropagation();

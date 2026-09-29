@@ -36,6 +36,19 @@ test('linked profiles cannot redirect cleanup', async t => {
   await access(path.join(profile, 'Cache', 'data'));
 });
 
+test('root aliases allow cleanup without allowing linked runs', async t => {
+  const { root, profile } = await fixture(t);
+  const alias = path.join(root, 'alias');
+  await symlink(root, alias, 'junction');
+  const linked = path.join(root, '.pre04-runs', 'smoke-456');
+  await symlink(path.dirname(profile), linked, 'junction');
+  await assert.rejects(cleanupTestCache(alias, path.join(alias, '.pre04-runs', 'smoke-456', 'profile')), /linked/);
+  await access(path.join(profile, 'Cache', 'data'));
+  await cleanupTestCache(alias, path.join(alias, '.pre04-runs', 'smoke-123', 'profile'));
+  await assert.rejects(access(path.join(profile, 'Cache')), { code: 'ENOENT' });
+  await access(path.join(profile, 'recovery', 'data'));
+});
+
 test('cleanup runs after close and does not run when close fails', async t => {
   const { root, profile } = await fixture(t);
   let fail = true;

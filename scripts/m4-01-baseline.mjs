@@ -15,6 +15,7 @@ try {
   const page = await app.firstWindow(); page.setDefaultTimeout(15000);
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡guide.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   await page.locator('.outline-item').filter({ hasText: 'Reused section' }).waitFor();
   for (const [width, height, zoom] of [[1180, 800, 1], [800, 600, 1], [1180, 800, 2]]) {
     await app.evaluate(({ BrowserWindow }, size) => { const win = BrowserWindow.getAllWindows()[0]; win.setContentSize(size[0], size[1]); win.webContents.setZoomFactor(size[2]); }, [width, height, zoom]);

@@ -29,6 +29,7 @@ try {
   async function command(label) { await page.keyboard.press('ControlOrMeta+Shift+P'); await palette.getByRole('combobox').fill(label); await palette.getByRole('combobox').press('Enter'); }
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   await uiCommand(page, '확장 관리');
   const manager = page.getByRole('dialog', { name: '확장 관리' });
   await manager.getByRole('button', { name: '활성화', exact: true }).click(); await manager.getByRole('button', { name: '닫기', exact: true }).click();

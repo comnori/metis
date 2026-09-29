@@ -20,7 +20,7 @@ try {
   await hint.getByRole('button', { name: '안내 건너뛰기' }).click(); await hint.waitFor({ state: 'hidden' }); await page.reload(); await hint.waitFor({ state: 'hidden' });
   await uiCommand(page, '시작 안내'); await guide.getByRole('button', { name: '시작 화면 안내 다시 표시' }).click(); await hint.waitFor();
   checks.push('guide and read-only sample create no files; Escape restores focus; skip persists and palette can restore hints');
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).click();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '이 폴더에 문서 만들기' }).click();
   const create = page.getByRole('dialog', { name: '새 문서' }); await create.getByLabel('문서 이름 (.adoc)').fill('first.adoc'); await create.getByRole('button', { name: '만들기', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); const text = '= First note\n\nMy first saved document.'; await page.keyboard.insertText(text);

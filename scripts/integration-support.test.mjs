@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { packageRelativePath, latestExecutable, runLogged } from './integration-support.mjs';
@@ -30,7 +30,7 @@ test('all native layouts resolve with spaces and a newline in the marker', async
   for (const platform of ['win32', 'darwin', 'linux']) for (const arch of ['x64', 'arm64']) {
     const executable = path.join(stage, packageRelativePath(platform, arch));
     await mkdir(path.dirname(executable), { recursive: true }); await writeFile(executable, 'fixture');
-    assert.equal(await latestExecutable(root, platform, arch), executable);
+    assert.equal(await latestExecutable(root, platform, arch), await realpath(executable));
   }
 });
 test('stale package and out-of-staging marker fail closed', async t => {

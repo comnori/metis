@@ -12,7 +12,8 @@ const app = await electron.launch({ executablePath: packaged || executablePath, 
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   await page.locator('.outline .operation-status[data-phase="complete"]').waitFor();
   await app.evaluate(({ ipcMain }) => {
     let calls = 0;
@@ -24,8 +25,8 @@ try {
       return { ok: true, requestId: request.requestId, value: { hits: [], scanned: 1, partial: calls === 2, warnings: ['검사용 일부 범위'], completedAt: new Date().toISOString() } };
     });
   });
-  await page.getByRole('button', { name: '검색', exact: true }).click();
-  const search = page.getByRole('dialog', { name: '작업 공간 검색' }); await search.getByRole('searchbox').fill('Body');
+  await page.keyboard.press('ControlOrMeta+Shift+f');
+  const search = page.getByRole('region', { name: '작업 공간 검색' }); await search.getByRole('searchbox').fill('Body');
   await search.getByRole('alert').filter({ hasText: '검색 · 실패' }).waitFor();
   await search.getByText('다음 행동: 검색어와 모드를 확인하고 다시 검색을 누르세요.', { exact: true }).waitFor();
   await search.getByRole('button', { name: '다시 검색', exact: true }).click(); await search.locator('[data-phase="partial"]').waitFor();
@@ -47,7 +48,7 @@ try {
   const proposal = page.getByRole('dialog', { name: '변경 제안 검토' });
   await proposal.getByRole('region', { name: '변경 범위와 복구' }).waitFor(); await proposal.getByRole('button', { name: '전체 거부하고 닫기', exact: true }).click();
   await writeFile(path.join(fixture, 'note.adoc'), '= External\n\nChanged');
-  await page.getByRole('button', { name: '외부 변경 확인', exact: true }).click(); await page.getByRole('button', { name: '변경 비교', exact: true }).click();
+  await uiCommand(page, '외부 변경 확인'); await page.getByRole('button', { name: '변경 비교', exact: true }).click();
   const conflict = page.getByRole('dialog', { name: '충돌 비교' });
   await conflict.getByRole('region', { name: '변경 범위와 복구' }).getByText(/해결안 저장은 이 파일의 디스크 원문을 변경/).waitFor();
   await page.screenshot({ path: path.join(run, 'conflict.png') }); await conflict.getByRole('button', { name: '취소', exact: true }).click();

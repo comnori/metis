@@ -18,6 +18,7 @@ try {
   await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   const relations = page.getByRole('region', { name: '관계 탐색' });
   await relations.getByText('참조 · missing · 대상 없음', { exact: true }).waitFor();
   assert.equal(await relations.getByText(/ghost/).count(), 0); checks.push('missing local reference and inactive exclusion');

@@ -15,7 +15,8 @@ try {
   await uiCommand(page, '확장 관리'); const manager = page.getByRole('dialog', { name: '확장 관리' });
   await manager.getByRole('status').filter({ hasText: '비활성' }).waitFor(); await manager.getByRole('button', { name: '활성화', exact: true }).click(); await manager.getByRole('status').filter({ hasText: /^활성$/ }).waitFor(); await manager.getByRole('button', { name: '닫기', exact: true }).click();
   await page.reload(); await uiCommand(page, '확장 관리'); await manager.getByRole('button', { name: '비활성화', exact: true }).waitFor(); await manager.getByRole('button', { name: '닫기', exact: true }).click(); checks.push('bundled extension defaults disabled; enabling survives renderer restart');
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click(); await page.locator('.outline-item').filter({ hasText: 'First' }).waitFor();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click(); await page.locator('.outline-item').filter({ hasText: 'First' }).waitFor();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\n\n== Unsaved section'); await page.locator('.outline-item').filter({ hasText: 'Unsaved section' }).waitFor();
   const palette = page.getByRole('dialog', { name: '명령 팔레트' });
   await page.keyboard.press('ControlOrMeta+Shift+P'); await palette.getByRole('combobox').fill('확장: 문서 개요'); await palette.getByRole('combobox').press('Enter');
