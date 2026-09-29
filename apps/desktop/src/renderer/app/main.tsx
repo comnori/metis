@@ -191,6 +191,17 @@ function App() {
     else setRecentWarning(result.error.message);
   }
   useEffect(() => { void loadRecents(); }, []);
+  useEffect(() => {
+    void (async () => {
+      const result = await call(() => window.metis.startupWorkspace({ requestId: requestId() }));
+      if (!result.ok) { setWarning(`마지막 작업 공간을 자동으로 열지 못했습니다: ${result.error.message}`); return; }
+      if (!result.value) return;
+      generation.current++; reading.current++;
+      setSession(result.value); setWarning(result.value.warning ?? '');
+      await list(result.value, '');
+      setStatus('마지막 작업 공간을 다시 열었습니다.');
+    })();
+  }, []);
   async function list(s: Session, relativePath: string, epoch = generation.current) {
     const token = ++listing.current;
     setLoading(true); setError('');

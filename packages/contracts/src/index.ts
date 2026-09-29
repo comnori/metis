@@ -23,11 +23,11 @@ export const channels = {
   workspaceRelations: 'metis:workspace-relations', cancelRelations: 'metis:cancel-relations',
   fileOperationStatus: 'metis:file-operation-status', cancelFileReview: 'metis:cancel-file-review',
   previewFileChange: 'metis:preview-file-change', applyFileChange: 'metis:apply-file-change',
-  copyDocument: 'metis:copy-document', checkpointDocument: 'metis:checkpoint-document', listRecovery: 'metis:list-recovery', readRecovery: 'metis:read-recovery',
+  copyDocument: 'metis:copy-document', checkpointDocument: 'metis:checkpoint-document', writeDraft: 'metis:write-draft', readDraft: 'metis:read-draft', deleteDraft: 'metis:delete-draft', listRecovery: 'metis:list-recovery', readRecovery: 'metis:read-recovery',
   searchDocuments: 'metis:search-documents', cancelSearch: 'metis:cancel-search',
   analyzeDocument: 'metis:analyze-document',
   saveDocument: 'metis:save-document', createDocument: 'metis:create-document', confirmDiscard: 'metis:confirm-discard', recoveryFolder: 'metis:recovery-folder',
-  openWorkspace: 'metis:open-workspace', closeWorkspace: 'metis:close-workspace',
+  startupWorkspace: 'metis:startup-workspace', openWorkspace: 'metis:open-workspace', closeWorkspace: 'metis:close-workspace',
   listDirectory: 'metis:list-directory', readDocument: 'metis:read-document', runtime: 'metis:runtime',
   createWorkspace: 'metis:create-workspace', createDirectory: 'metis:create-directory',
   recentWorkspaces: 'metis:recent-workspaces', openRecentWorkspace: 'metis:open-recent-workspace', removeRecentWorkspace: 'metis:remove-recent-workspace'
@@ -58,6 +58,8 @@ export interface GitVersion { relativePath: string; commit: string; text: string
 export interface PreviewStylesheet { name?: string; css?: string; active: boolean; warning?: string }
 export interface SaveRequest extends PathRequest { revision: string; text: string }
 export interface AnalyzeRequest extends PathRequest { text: string }
+export interface DraftWriteRequest extends AnalyzeRequest { revision: string }
+export interface Draft { relativePath: string; text: string; revision: string; updatedAt: string }
 export interface FileChangeRequest extends PathRequest { action: 'move' | 'delete'; destination: string }
 export interface FileChangeApply extends ScopedRequest { planId: string; selected: string[] }
 export interface OperationRequest extends ScopedRequest { operationId: string }
@@ -117,6 +119,9 @@ export interface Api {
   applyFileChange(request: FileChangeApply): Promise<Result<FileChangeResult>>;
   copyDocument(request: CopyRequest): Promise<Result<DocumentSnapshot>>;
   checkpointDocument(request: AnalyzeRequest): Promise<Result<string>>;
+  writeDraft(request: DraftWriteRequest): Promise<Result<null>>;
+  readDraft(request: PathRequest): Promise<Result<Draft | null>>;
+  deleteDraft(request: PathRequest): Promise<Result<null>>;
   listRecovery(request: ScopedRequest): Promise<Result<RecoveryList>>;
   readRecovery(request: RecoveryRequest): Promise<Result<RecoveryContent>>;
   searchDocuments(request: SearchRequest): Promise<Result<SearchResults>>;
@@ -126,6 +131,7 @@ export interface Api {
   createDocument(request: CreateDirectoryRequest): Promise<Result<DocumentSnapshot>>;
   confirmDiscard(request: Request): Promise<Result<boolean>>;
   recoveryFolder(request: Request): Promise<Result<null>>;
+  startupWorkspace(request: Request): Promise<Result<Session | null>>;
   openWorkspace(request: Request): Promise<Result<Session>>;
   closeWorkspace(request: ScopedRequest): Promise<Result<null>>;
   listDirectory(request: PathRequest): Promise<Result<Entry[]>>;
@@ -160,11 +166,11 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
   }
   if (method === 'gitVersion' && (typeof value.commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.commit))) return fail();
   if (['gitFile', 'gitVersion'].includes(method) && (typeof value.relativePath !== 'string' || !/\.adoc$/i.test(value.relativePath) || value.relativePath.split('/').some(part => part.toLowerCase() === '.git'))) return fail();
-  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
-  const path = ['generateProposal', 'semanticDiff', 'openExternal', 'gitFile', 'gitVersion', 'previewFileChange', 'copyDocument', 'checkpointDocument', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
+  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
+  const path = ['generateProposal', 'semanticDiff', 'openExternal', 'gitFile', 'gitVersion', 'previewFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const named = ['copyDocument', 'createWorkspace', 'createDirectory', 'createDocument'].includes(method);
   const recent = method === 'openRecentWorkspace' || method === 'removeRecentWorkspace';
-  const keys = ['requestId', ...(method === 'generateProposal' ? ['revision', 'text', 'instruction', 'provider', 'port', 'chatModel', 'approved'] : []), ...(method === 'queryAi' ? ['bundleId', 'query', 'port', 'embeddingModel', 'chatModel', 'approved', ...('provider' in value ? ['provider'] : []), ...('embeddingPort' in value ? ['embeddingPort', 'embeddingProvider'] : [])] : []), ...(method === 'semanticDiff' ? ['before', 'after'] : []), ...(method === 'buildContext' ? ['paths', 'roots'] : []), ...(['applyLaunch', 'dismissLaunch'].includes(method) ? ['launchId'] : []), ...(method === 'gitVersion' ? ['commit'] : []), ...(scoped ? ['workspaceId', 'workspaceEpoch'] : []), ...(path ? ['relativePath'] : []), ...(named ? ['name'] : []), ...(recent ? ['recentId'] : []), ...(method === 'saveDocument' ? ['revision', 'text'] : []), ...(['analyzeDocument', 'copyDocument', 'checkpointDocument'].includes(method) ? ['text'] : []), ...(method === 'searchDocuments' ? ['query', 'mode', 'caseSensitive'] : []), ...(method === 'readRecovery' ? ['recoveryId', 'variant'] : []), ...(method === 'previewFileChange' ? ['action', 'destination'] : []), ...(method === 'applyFileChange' ? ['planId', 'selected'] : []), ...(['agentProgress', 'fileOperationStatus', 'cancelFileReview'].includes(method) ? ['operationId'] : [])];
+  const keys = ['requestId', ...(method === 'generateProposal' ? ['revision', 'text', 'instruction', 'provider', 'port', 'chatModel', 'approved'] : []), ...(method === 'queryAi' ? ['bundleId', 'query', 'port', 'embeddingModel', 'chatModel', 'approved', ...('provider' in value ? ['provider'] : []), ...('embeddingPort' in value ? ['embeddingPort', 'embeddingProvider'] : [])] : []), ...(method === 'semanticDiff' ? ['before', 'after'] : []), ...(method === 'buildContext' ? ['paths', 'roots'] : []), ...(['applyLaunch', 'dismissLaunch'].includes(method) ? ['launchId'] : []), ...(method === 'gitVersion' ? ['commit'] : []), ...(scoped ? ['workspaceId', 'workspaceEpoch'] : []), ...(path ? ['relativePath'] : []), ...(named ? ['name'] : []), ...(recent ? ['recentId'] : []), ...(['saveDocument', 'writeDraft'].includes(method) ? ['revision', 'text'] : []), ...(['analyzeDocument', 'copyDocument', 'checkpointDocument'].includes(method) ? ['text'] : []), ...(method === 'searchDocuments' ? ['query', 'mode', 'caseSensitive'] : []), ...(method === 'readRecovery' ? ['recoveryId', 'variant'] : []), ...(method === 'previewFileChange' ? ['action', 'destination'] : []), ...(method === 'applyFileChange' ? ['planId', 'selected'] : []), ...(['agentProgress', 'fileOperationStatus', 'cancelFileReview'].includes(method) ? ['operationId'] : [])];
   if (Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key))) return fail();
   if (typeof value.requestId !== 'string' || !/^[\w-]{1,80}$/.test(value.requestId)) return fail();
   if (named && !validFolderName(value.name)) return fail();
@@ -172,7 +178,8 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
   if (method === 'previewFileChange' && (!['move', 'delete'].includes(String(value.action)) || typeof value.destination !== 'string' || (value.action === 'delete' ? value.destination !== '' : !validDocumentPath(value.destination)) || !validDocumentPath(String(value.relativePath)))) return fail();
   if (method === 'applyFileChange' && (typeof value.planId !== 'string' || !/^[\w-]{1,80}$/.test(value.planId) || !Array.isArray(value.selected) || value.selected.length > 500 || value.selected.some(id => typeof id !== 'string' || !/^[\w-]{1,80}$/.test(id)) || new Set(value.selected).size !== value.selected.length)) return fail();
   if (method === 'readRecovery' && (typeof value.recoveryId !== 'string' || !/^(save|draft)-[\w-]{1,80}$/.test(value.recoveryId) || !['before', 'edited', 'displaced'].includes(String(value.variant)))) return fail();
-  if (['copyDocument', 'checkpointDocument'].includes(method) && (typeof value.text !== 'string' || value.text.length > 16 * 1024 * 1024 || value.text.includes('\0') || !value.text.isWellFormed())) return fail();
+  if (['copyDocument', 'checkpointDocument', 'writeDraft'].includes(method) && (typeof value.text !== 'string' || value.text.length > 16 * 1024 * 1024 || value.text.includes('\0') || !value.text.isWellFormed())) return fail();
+  if (method === 'writeDraft' && (typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision))) return fail();
   if (method === 'copyDocument' && !/\.adoc$/i.test(String(value.name))) return fail();
   if (method === 'searchDocuments' && (typeof value.query !== 'string' || value.query.length > 200 || /[\x00-\x1f]/.test(value.query) || !value.query.isWellFormed() || !['text', 'files', 'symbols'].includes(String(value.mode)) || typeof value.caseSensitive !== 'boolean')) return fail();
   if (method === 'analyzeDocument' && (typeof value.text !== 'string' || value.text.length > 1024 * 1024 || value.text.includes('\0') || !value.text.isWellFormed())) return fail();
@@ -185,7 +192,7 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
     const p = value.relativePath;
     if (typeof p !== 'string' || p.length > 4096 || /[\\:\x00-\x1f]/.test(p) ||
       (p !== '' && p.split('/').some(part => !part || part === '.' || part === '..')) ||
-      (['readDocument', 'saveDocument', 'analyzeDocument', 'checkpointDocument'].includes(method) && p === '')) return fail();
+      (['readDocument', 'saveDocument', 'analyzeDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft'].includes(method) && p === '')) return fail();
   }
   return input as Request | ScopedRequest | PathRequest;
 }

@@ -1,4 +1,4 @@
 {
-  "name": "@metis/desktop", "version": "0.2.2", "private": true,
+  "name": "@metis/desktop", "version": "0.2.3", "private": true,
   "main": "dist/main/main.cjs"
 }

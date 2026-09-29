@@ -52,9 +52,30 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; appear
   const [copyName, setCopyName] = useState('recovered.adoc');
   const [, render] = useState(0);
   const saving = useRef(false);
+  const draftTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const draftWrites = useRef(new Map<string, Promise<void>>());
   const back = useRef<Visit[]>([]), forward = useRef<Visit[]>([]);
   const current = useRef(props); current.current = props;
   const changed = () => { render(value => value + 1); current.current.onCommandsChanged(); current.current.onTabsChanged([...tabs.current].map(([path, tab]) => ({ path, dirty: dirty(tab) })), activeRef.current); };
+  function scheduleDraft(tab: Tab) {
+    const session = current.current.session, path = tab.baseline.relativePath;
+    const previous = draftTimers.current.get(path); if (previous) clearTimeout(previous);
+    draftTimers.current.set(path, setTimeout(() => {
+      draftTimers.current.delete(path);
+      if (!session || current.current.session !== session || tabs.current.get(path) !== tab || !dirty(tab)) return;
+      const write = window.metis.writeDraft({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath: path, revision: tab.baseline.revision, text: tab.text })
+        .then(result => { if (!result.ok) current.current.onError(`임시 초안을 보존하지 못했습니다: ${result.error.message}`); })
+        .catch(() => current.current.onError('임시 초안을 보존하지 못했습니다.'))
+        .finally(() => { if (draftWrites.current.get(path) === write) draftWrites.current.delete(path); });
+      draftWrites.current.set(path, write);
+    }, 250));
+  }
+  async function deleteDraft(path: string, session = current.current.session) {
+    const timer = draftTimers.current.get(path); if (timer) { clearTimeout(timer); draftTimers.current.delete(path); }
+    await draftWrites.current.get(path);
+    if (!session || current.current.session !== session) return;
+    await window.metis.deleteDraft({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath: path }).catch(() => undefined);
+  }
   const select = (path: string) => { activeRef.current = path; setActive(path); };
   function location(): Visit | undefined {
     const tab = tabs.current.get(active), view = tab?.view;
@@ -188,7 +209,19 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; appear
       if (document.relativePath !== active || line) remember();
       let existing = tabs.current.get(document.relativePath);
       if (existing && !dirty(existing) && existing.baseline.revision !== document.revision) { tabs.current.delete(document.relativePath); existing = undefined; }
-      if (!existing) tabs.current.set(document.relativePath, { baseline: document, text: normalized(document.text) });
+      if (!existing) {
+        const tab: Tab = { baseline: document, text: normalized(document.text) }; tabs.current.set(document.relativePath, tab);
+        const session = current.current.session;
+        if (session) void window.metis.readDraft({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath: document.relativePath }).then(result => {
+          if (!result.ok || !result.value || current.current.session !== session || tabs.current.get(document.relativePath) !== tab || tab.text !== normalized(document.text)) return;
+          const draft = result.value;
+          if (draft.text === normalized(document.text)) { void deleteDraft(document.relativePath, session); return; }
+          if (draft.revision !== document.revision) { tab.baseline = { ...document, revision: draft.revision }; tab.external = { message: '앱을 종료한 뒤 디스크가 변경되었습니다. 복원한 임시 초안과 충돌합니다.', disk: document }; }
+          tab.text = draft.text;
+          tab.view?.dispatch({ changes: { from: 0, to: tab.view.state.doc.length, insert: draft.text } });
+          current.current.onStatus(`${document.relativePath}: 저장하지 않은 임시 초안을 복원했습니다.`); changed();
+        }).catch(() => current.current.onError('임시 초안을 확인하지 못했습니다.'));
+      }
       if (line) { jump(tabs.current.get(document.relativePath)!, line); setMode('split'); }
       select(document.relativePath); props.onActive(existing?.baseline ?? document); changed();
     },
@@ -204,7 +237,7 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; appear
     try {
       const result = await window.metis.saveDocument({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch,
         relativePath: path, revision: tab.baseline.revision, text });
-      if (result.ok) { tab.baseline = result.value; tab.external = undefined; current.current.onStatus('저장했습니다.'); }
+      if (result.ok) { tab.baseline = result.value; tab.external = undefined; await deleteDraft(path, session); current.current.onStatus('저장했습니다.'); }
       else { current.current.onError(result.error.message); current.current.onStatus('저장하지 못했습니다. 편집 내용은 유지됩니다.'); }
     } catch { current.current.onError('저장 응답을 받지 못했습니다. 편집 내용과 복구 사본을 확인해 주세요.'); }
     finally { saving.current = false; current.current.onBusy(false); changed(); void inspect(tab); }
@@ -216,6 +249,7 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; appear
       catch { props.onError('닫기 확인을 완료하지 못했습니다.'); return; }
     }
     tabs.current.delete(path);
+    await deleteDraft(path);
     if (activeRef.current === path) { const next = tabs.current.keys().next().value ?? ''; select(next); props.onActive(tabs.current.get(next)?.baseline); }
     changed();
   }
@@ -260,7 +294,7 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; appear
     {selected?.external && <div className="external-change" role="status">{selected.external.message}<div className="tools">{selected.external.disk && <button disabled={saving.current} onClick={() => setReview({ tab: selected, disk: selected.external!.disk! })}>변경 비교</button>}<button disabled={saving.current} onClick={() => runDocumentCommand('document.inspect')}>다시 확인</button></div><div className="copy-controls"><input aria-label="사본 파일 이름" value={copyName} onChange={event => setCopyName(event.target.value)} /><button disabled={saving.current || !validFolderName(copyName) || !/\.adoc$/i.test(copyName)} onClick={() => keepOrCopy(selected, true)}>다른 이름으로 저장</button></div></div>}
     {review && <Conflict baseline={review.tab.baseline} disk={review.disk} text={review.tab.text} close={() => setReview(undefined)} resolve={resolve} />}
     <div className={`document-body mode-${mode}`}>
-      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={changed} save={() => void runDocumentCommand('document.save')} /></div>)}</div>
+      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} /></div>)}</div>
       {selected && props.session && <Preview appearance={props.appearance} stylesheetVersion={props.stylesheetVersion} inspector={false} key={active} position={selected.previewPosition ??= { x: 0, y: 0, outline: 0 }} editorLine={() => selected.view?.state.doc.lineAt(selected.view.state.selection.main.head).number ?? 1} reveal={() => setMode('split')} session={props.session} relativePath={active} text={selected.text} mode={mode} onAnalysis={value => { selected.analysis = value; selected.analysisText = analyzedText; props.onAnalysis(active, value); }} navigate={entry => { setMode('split'); if (entry.relativePath === active) jump(selected, entry.line); else props.onSource(entry); }} />}
     </div>
   </section>;

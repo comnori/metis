@@ -6,11 +6,11 @@ import type { ContextRequest, ContextBundle } from '@metis/contracts';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { PreviewWorker } from './preview-worker';
 import type { OperationRequest, RelationIndex, GitVersionRequest } from '@metis/contracts';
-import { GitWorkspace, PreviewStylesheets, initializeGitRepository, isOwnGitRepository } from '@metis/workspace';
+import { Drafts, GitWorkspace, PreviewStylesheets, initializeGitRepository, isOwnGitRepository } from '@metis/workspace';
 import { ExternalEditor, LaunchQueue } from '@metis/workspace';
 import type { LaunchRequest, Session } from '@metis/contracts';
 import { promises as fs } from 'node:fs';
-import type { SaveRequest, AnalyzeRequest, SearchRequest, SearchResults, CopyRequest, RecoveryRequest, FileChangeRequest, FileChangeApply } from '@metis/contracts';
+import type { SaveRequest, AnalyzeRequest, DraftWriteRequest, SearchRequest, SearchResults, CopyRequest, RecoveryRequest, FileChangeRequest, FileChangeApply } from '@metis/contracts';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { channels, protocolVersion, validate, failure, BoundaryError, type Method, type PathRequest, type ScopedRequest, type NamedRequest, type RecentRequest, type CreateDirectoryRequest } from '@metis/contracts';
@@ -35,6 +35,7 @@ else {
 }
 const recoveryRoot = path.join(app.getPath('userData'), 'recovery');
 const previewStylesheets = new PreviewStylesheets(path.join(app.getPath('userData'), 'preview-stylesheets.json'));
+const drafts = new Drafts(path.join(app.getPath('userData'), 'drafts'));
 const workspace = new Workspace(recoveryRoot);
 const fileChanges = new FileChanges(workspace);
 const git = new GitWorkspace(workspace);
@@ -66,6 +67,12 @@ if (ownsLock) app.whenReady().then(() => {
     workspace.analysisRoot(request);
     const key = currentSession?.viewKey;
     if (!key) throw new BoundaryError('NO_WORKSPACE', '사용자 CSS를 연결할 작업 공간을 먼저 여세요.');
+    return key;
+  };
+  const draftKey = (request: ScopedRequest) => {
+    workspace.analysisRoot(request);
+    const key = currentSession?.viewKey;
+    if (!key) throw new BoundaryError('NO_WORKSPACE', '초안을 연결할 작업 공간을 먼저 여세요.');
     return key;
   };
   const preview = new PreviewWorker(path.join(__dirname, '../utility/utility.cjs'));
@@ -201,6 +208,9 @@ if (ownsLock) app.whenReady().then(() => {
             selecting = true;
             try { value = method === 'copyDocument' ? await workspace.copy(request as CopyRequest) : await workspace.checkpoint(request as AnalyzeRequest); } finally { selecting = false; }
             break;
+          case 'writeDraft': value = await drafts.write(draftKey(request as ScopedRequest), request as DraftWriteRequest); break;
+          case 'readDraft': value = await drafts.read(draftKey(request as ScopedRequest), request as PathRequest); break;
+          case 'deleteDraft': value = await drafts.delete(draftKey(request as ScopedRequest), request as PathRequest); break;
           case 'listRecovery':
           case 'readRecovery': {
             const recoveryRequest = request as RecoveryRequest;
@@ -235,6 +245,15 @@ if (ownsLock) app.whenReady().then(() => {
             try { value = await workspace.createDocument(request as CreateDirectoryRequest); } finally { selecting = false; }
             break;
           case 'runtime': value = { protocolVersion, workerReady: preview.ready }; break;
+          case 'startupWorkspace': {
+            if (currentSession) value = currentSession;
+            else if (launchQueue.peek()) value = null;
+            else {
+              const latest = (await recents.list()).entries.find(entry => entry.state === 'available');
+              value = latest ? await open(await recents.resolve(latest.id)) : null;
+            }
+            break;
+          }
           case 'recentWorkspaces': value = await recents.list(); break;
           case 'removeRecentWorkspace': await recents.remove((request as RecentRequest).recentId); value = null; break;
           case 'openRecentWorkspace': {
