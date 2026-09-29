@@ -2,7 +2,7 @@ import { expect, test } from 'vitest';
 import { CompletionContext } from '@codemirror/autocomplete';
 import { EditorState } from '@codemirror/state';
 import type { Analysis } from '@metis/contracts';
-import { complete } from '../../../apps/desktop/src/renderer/completions';
+import { complete } from '../../../apps/desktop/src/renderer/widgets/document-workspace/completions';
 const analysis: Analysis = { html: '', outline: [], diagnostics: [], relations: [], conditions: [], attributeUses: [],
   files: ['docs/main.adoc', 'shared/part.adoc'], anchors: [{ id: 'local', title: 'Local', relativePath: 'docs/main.adoc', line: 1 }],
   targetAnchors: [{ id: 'part', title: 'Part', relativePath: 'shared/part.adoc', documentPath: 'shared/part.adoc', line: 2 }],

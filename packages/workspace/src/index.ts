@@ -13,6 +13,7 @@ export { LaunchQueue, parseLaunch } from './launch';
 import type { SaveRequest } from '@metis/contracts';
 import { BoundaryError, validFolderName, type CreateDirectoryRequest, type Session, type ScopedRequest, type PathRequest, type Entry, type DocumentSnapshot } from '@metis/contracts';
 export { Recents } from './recents';
+export { Drafts } from './drafts';
 const limit = 16 * 1024 * 1024;
 export class Workspace {
   constructor(private recoveryRoot?: string) {}
