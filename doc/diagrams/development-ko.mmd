@@ -1,0 +1,6 @@
+flowchart LR
+    Install["npm ci"] --> Start["npm start"]
+    Start --> Build["빌드 → apps/desktop/dist"]
+    Build --> Run["Electron 실행"]
+    Run --> Edit["앱 종료 · 소스 수정"]
+    Edit --> Start

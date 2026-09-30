@@ -1,0 +1,8 @@
+flowchart LR
+    Main["main"] --> Branch["짧은 작업 브랜치"]
+    Branch --> PR["PR · Conventional Commits 제목 · type 라벨"]
+    PR --> Checks["PR 정책 · Desktop 3개 OS 검사"]
+    Checks --> Squash["대화 해결 · 최신 main · Squash"]
+    Squash --> Protected["보호된 main"]
+    Protected --> Release["관리자가 릴리스 버전 결정"]
+    Release --> Tag["변경·삭제가 금지된 릴리스 태그"]
