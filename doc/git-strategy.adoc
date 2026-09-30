@@ -39,21 +39,44 @@ Squash만 허용하여 PR 하나가 main의 커밋 하나가 됩니다. Squash �
 PR을 통한 병합, 대화 해결, 최신 main 반영 및 다음 GitHub Actions 검사 통과를 요구합니다.
 
 * `PR policy`
-* `Desktop / windows-2022`
-* `Desktop / macos-14`
-* `Desktop / ubuntu-22.04`
+* `Desktop core / windows-2022`
+* `Desktop core / macos-14`
+* `Desktop core / ubuntu-22.04`
 
 1인 개발을 지원하기 위해 필수 승인 리뷰 수는 0명입니다.
 main 삭제, 강제 push 및 우회 사용자를 허용하지 않으며 선형 이력을 요구합니다.
-Desktop 검증은 PR, main push, 수동 실행에서 타입 검사·단위 테스트·도구 테스트·빌드·개발 및 패키지 통합 검사를 수행합니다.
+PR 핵심 검증은 3개 OS에서 `npm run check`와 `npm run test:desktop:core`를 실행합니다.
+GUI 검사는 앱 기동, 작업 공간 열기, 문서 생성·편집·저장·재열기, AsciiDoc 미리보기, 검색과 원문 보존을 확인합니다.
+PR에서 패키징이나 전체 GUI 회귀 검사를 실행하지 않습니다. 새 커밋이 올라오면 이전 핵심 검사를 취소합니다.
 PR 코드 실행은 읽기 권한의 `pull_request` 이벤트를 사용하고 secrets를 전달하지 않습니다.
 
 새 필수 검사는 실제 PR에서 성공한 후 등록합니다. 기존 CI 실패가 있으면 원인을 해결하고 성공을 확인한 다음 활성화합니다.
 도입 시 `main-protection`과 `release-tag-protection`을 먼저 활성화합니다.
-`main-required-checks`는 기존 CI 수정의 main 병합과 최신 main을 반영한 PR의 네 검사 통과가 확인될 때까지 비활성 상태로 유지합니다.
+`main-required-checks`는 최신 main을 반영한 PR의 네 검사 통과가 확인될 때까지 비활성 상태로 유지합니다.
 따라서 이 도입 기간에는 필수 검사와 최신 main 반영이 아직 강제되지 않습니다.
 
 == 버전과 릴리스
+
+`Desktop full validation`은 수동 실행만 허용합니다. 기존 31개 GUI 시나리오와 핵심 시나리오를 개발 앱과 패키지 앱에서 모두 검증하며,
+3개 OS의 타입·단위·도구 검사 및 패키징을 유지합니다. 전체 검사는 PR 병합 조건이 아니라 릴리스 조건입니다.
+
+[source,sh]
+----
+gh workflow run desktop-validation.yml --ref main
+gh run list --workflow desktop-validation.yml --event workflow_dispatch --branch main
+gh run watch RUN_ID --exit-status
+gh run view RUN_ID --json headSha,url,conclusion
+----
+
+Actions 화면에서도 `Desktop full validation`의 `Run workflow`에서 main을 선택할 수 있습니다.
+성공한 실행의 `headSha`에 태그를 만듭니다. 검사 중 main이 전진해도 새 HEAD를 대신 사용하지 않습니다.
+release workflow는 태그의 실제 커밋 SHA에 대해 main에서 수동 실행한 전체 검증 중 가장 최근 실행과 그 최신 attempt의 3개 OS 결과를 확인합니다.
+진행 중·실패·취소·skipped·누락·SHA 불일치 또는 API 오류이면 패키징을 시작하지 않습니다.
+전체 검사 자체는 태그나 릴리스를 생성하지 않습니다.
+
+릴리스가 차단되면 해당 SHA의 기존 전체 검증 실행을 재실행해 성공시킨 뒤 릴리스의 실패 job을 재실행합니다.
+기존 실행이 없고 main이 아직 해당 SHA라면 main에서 전체 검증을 시작합니다.
+main이 이미 전진했고 해당 SHA의 수동 검증 실행도 없다면 태그를 이동하지 않고 현재 main을 검증한 새 버전으로 릴리스합니다.
 
 PR은 변경 의미를 기록하고 SemVer는 릴리스 시점에 관리자가 결정합니다.
 Git 태그가 릴리스 식별자이며 병합마다 버전을 올리지 않습니다.

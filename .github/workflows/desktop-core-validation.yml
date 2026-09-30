@@ -1,0 +1,52 @@
+name: Desktop core validation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-core-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop core / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, macos-14, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+          cache: npm
+      - run: npm ci
+      - name: Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install-deps chromium
+      - run: npm run check
+      - name: Core document flow
+        if: runner.os != 'Linux'
+        run: npm run test:desktop:core
+      - name: Core document flow under Xvfb
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:desktop:core
+      - name: Core evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-core-${{ matrix.os }}
+          retention-days: 14
+          include-hidden-files: true
+          path: |
+            .pre04-runs/core-*/results.json
+            .pre04-runs/core-*/*.log
+            .pre04-runs/core-*/*.png

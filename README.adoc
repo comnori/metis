@@ -65,22 +65,33 @@ link:doc/diagrams/development-en.mmd[Mermaid source]
 [source,sh]
 ----
 npm run check
-npm run test:integration
+npm run test:desktop:core
 ----
+
+PRs run these commands on Windows, macOS, and Linux. The core GUI scenario checks startup, opening a workspace, document creation, editing, saving and reopening, AsciiDoc preview, search, and source-byte preservation. PRs do not package the application or run the full GUI suite.
 
 [cols="1,3",options="header"]
 |===
 | Command | Purpose
-| ``npm run check`` | Type checking → unit tests → tooling tests → build
-| ``npm run typecheck`` | Run type checking only
-| ``npm test`` | Run Vitest unit tests only
-| ``npm run test:desktop`` | Run basic smoke checks against the built development app
-| ``npm run test:integration`` | Run PRE-04, M1-01–08, M2-01–07, and M3-01–03 integration checks against the built development app
+| ``npm run check`` | Type checking, unit tests, tooling tests, and build
+| ``npm run test:desktop:core`` | Core document flow against the built development app
+| ``npm run test:integration`` | Full development GUI suite: 31 existing scenarios plus the core flow
+| ``npm run test:integration:packaged`` | The same full suite against the latest packaged app
 |===
 
-GUI tests do not build the app themselves. Run ``npm run check`` or ``npm run build`` first. Test workspaces, profiles, and results are created under ``.pre04-runs/``. Integration results and per-stage logs are written to ``.pre04-runs/integration-*/``.
+GUI tests do not build the app. Run the check or build command first. Evidence is saved under ``.pre04-runs/core-*/`` and ``.pre04-runs/integration-*/``. Linux uses Xvfb for GUI tests.
 
-Linux CI installs system dependencies with ``npx playwright install-deps chromium`` and runs GUI tests with ``xvfb-run -a npm run test:integration``.
+Before releasing, manually run the full 3-OS validation from Actions or the CLI:
+
+[source,sh]
+----
+gh workflow run desktop-validation.yml --ref main
+gh run list --workflow desktop-validation.yml --event workflow_dispatch --branch main
+gh run watch RUN_ID --exit-status
+gh run view RUN_ID --json headSha,url,conclusion
+----
+
+Tag the successful run's exact headSha, even if main has advanced. Release packaging requires the latest manual full validation of that same main commit and all three OS jobs to succeed. Full validation includes packaging and both development and packaged GUI suites; it never publishes a release by itself. See link:doc/git-strategy.adoc[Git strategy] for retry and tag rules.
 
 == Package the app
 
