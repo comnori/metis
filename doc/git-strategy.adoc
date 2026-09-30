@@ -49,6 +49,9 @@ Desktop 검증은 PR, main push, 수동 실행에서 타입 검사·단위 테�
 PR 코드 실행은 읽기 권한의 `pull_request` 이벤트를 사용하고 secrets를 전달하지 않습니다.
 
 새 필수 검사는 실제 PR에서 성공한 후 등록합니다. 기존 CI 실패가 있으면 원인을 해결하고 성공을 확인한 다음 활성화합니다.
+도입 시 `main-protection`과 `release-tag-protection`을 먼저 활성화합니다.
+`main-required-checks`는 기존 CI 수정의 main 병합과 최신 main을 반영한 PR의 네 검사 통과가 확인될 때까지 비활성 상태로 유지합니다.
+따라서 이 도입 기간에는 필수 검사와 최신 main 반영이 아직 강제되지 않습니다.
 
 == 버전과 릴리스
 
