@@ -57,6 +57,7 @@ try {
   await reviewDialog.getByRole('button', { name: '취소', exact: true }).click();
   checks.push('208-document workspace shows bounded review warning without applying changes');
   await page.getByRole('button', { name: '≡large.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '미리보기 원문 한도는 1 MiB' }).waitFor();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
   await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('kept');

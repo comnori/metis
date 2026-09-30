@@ -26,7 +26,7 @@ try {
   await query.focus(); await query.press('ArrowDown'); await page.keyboard.press('Enter');
   await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
   await uiCommand(page, '탐색 뒤로'); await page.getByRole('heading', { name: 'a.adoc', exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '!');
+  await page.waitForFunction(() => window.getSelection()?.toString() === '!');
   assert.ok((await editor.textContent()).includes('Unsaved!'));
   await uiCommand(page, '탐색 앞으로'); await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
   checks.push('filtered keyboard search opens source; back restores dirty source selection and forward returns to result');
