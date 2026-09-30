@@ -16,7 +16,7 @@ try {
   await hint.getByRole('button', { name: '작성 방법과 예제 보기' }).click(); const guide = page.getByRole('dialog', { name: '시작 안내' });
   await guide.getByText('읽기 전용 AsciiDoc 예제', { exact: true }).click(); await guide.getByLabel('학습용 예제 원문').waitFor();
   assert.deepEqual(await readdir(fixture), []); await page.keyboard.press('Escape');
-  assert.equal(await page.getByRole('button', { name: '작성 방법과 예제 보기' }).evaluate(e => e === document.activeElement), true);
+  await page.waitForFunction(() => document.activeElement?.textContent === '작성 방법과 예제 보기');
   await hint.getByRole('button', { name: '안내 건너뛰기' }).click(); await hint.waitFor({ state: 'hidden' }); await page.reload(); await hint.waitFor({ state: 'hidden' });
   await uiCommand(page, '시작 안내'); await guide.getByRole('button', { name: '시작 화면 안내 다시 표시' }).click(); await hint.waitFor();
   checks.push('guide and read-only sample create no files; Escape restores focus; skip persists and palette can restore hints');
