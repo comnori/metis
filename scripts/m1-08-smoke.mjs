@@ -25,7 +25,7 @@ try {
   const create = page.getByRole('dialog', { name: '새 문서', exact: true }); await create.waitFor();
   for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]')), true); }
   await page.keyboard.press('Escape'); await create.waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '새 문서');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '새 문서');
   checks.push('create dialog traps focus and Escape restores invoker');
   await page.getByRole('button', { name: '검색', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '검색어' }); await query.fill('needle');

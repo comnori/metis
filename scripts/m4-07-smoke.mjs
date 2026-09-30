@@ -14,8 +14,9 @@ try {
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
+  await editor.waitFor();
   await page.getByRole('button', { name: '편집기로 바로 이동', exact: true }).focus(); await page.keyboard.press('Enter');
-  assert.equal(await editor.evaluate(e => e === document.activeElement), true); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.editor-panel:not([hidden]) .cm-content')); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
   await page.getByRole('button', { name: '검색', exact: true }).click(); await page.getByRole('searchbox', { name: '검색어' }).waitFor(); await page.keyboard.press('Escape');
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '검색');
   checks.push('skip action focuses editor; search Escape returns focus to invoking button and retains dirty buffer');
