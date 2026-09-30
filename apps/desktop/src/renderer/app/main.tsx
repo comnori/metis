@@ -158,9 +158,9 @@ function App() {
       const pending = await window.metis.pendingLaunch({ requestId: requestId() }); if (!pending.ok || !pending.value) return;
       if (locked.current || commandRunning.current || window.document.querySelector('dialog[open]')) return;
       locked.current = true; processing = true;
+      setBusy(true);
       const item = pending.value;
       if (item.error) { setError(item.error); await window.metis.dismissLaunch({ requestId: requestId(), launchId: item.id }); return; }
-      setBusy(true);
       if (!item.sameWorkspace && !(await documents.current?.allowLeave())) { await window.metis.dismissLaunch({ requestId: requestId(), launchId: item.id }); setStatus('CLI 열기를 취소했습니다. 기존 편집은 유지됩니다.'); return; }
       const result = await window.metis.applyLaunch({ requestId: requestId(), launchId: item.id }); if (!result.ok) { report(result); return; }
       const target = result.value, changed = session?.workspaceId !== target.session.workspaceId || session?.workspaceEpoch !== target.session.workspaceEpoch;

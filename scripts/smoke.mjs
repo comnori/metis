@@ -17,6 +17,22 @@ try {
   const page = await instance.firstWindow();
   await page.getByRole('heading', { name: '문서가 있는 곳에서 시작하세요.' }).waitFor();
   assert.deepEqual(await page.evaluate(() => [typeof window.require, typeof window.process, typeof window.metis.invoke]), ['undefined', 'undefined', 'undefined']); checks.push('renderer isolation');
+  // Hold dismissal until the error has rendered while commands are locked.
+  await instance.evaluate(({ ipcMain }) => {
+    let pending = true;
+    ipcMain.removeHandler('metis:pending-launch');
+    ipcMain.handle('metis:pending-launch', (_, request) => ({ ok: true, requestId: request.requestId, value: pending ? { id: 'invalid-startup', sameWorkspace: false, error: '검사용 잘못된 시작 요청' } : null }));
+    ipcMain.removeHandler('metis:dismiss-launch');
+    ipcMain.handle('metis:dismiss-launch', (_, request) => {
+      pending = false;
+      return new Promise(resolve => { globalThis.finishDismiss = () => resolve({ ok: true, requestId: request.requestId, value: null }); });
+    });
+  });
+  await page.getByRole('alert').filter({ hasText: '검사용 잘못된 시작 요청' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '폴더 열기', exact: true }).first().isDisabled(), true);
+  await instance.evaluate(() => globalThis.finishDismiss());
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '폴더 열기' && !button.disabled));
+  checks.push('invalid startup request unlocks workspace commands after dismissal');
   await instance.evaluate(({ dialog }) => { dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] }); });
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('status').filter({ hasText: '취소' }).waitFor(); checks.push('dialog cancellation');
