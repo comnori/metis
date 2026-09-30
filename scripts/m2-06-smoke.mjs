@@ -10,7 +10,8 @@ await mkdir(fixture, { recursive: true }); await mkdir(other); const target = pa
 const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
 const packaged = process.argv[2], binary = packaged || executablePath, prefix = packaged ? [] : [path.join(root, 'apps/desktop')], checks = [];
 const launch = args => new Promise((resolve, reject) => { const child = spawn(binary, [...prefix, '--smoke', ...args], { env, windowsHide: true, stdio: 'ignore' }); const timer = setTimeout(() => { child.kill(); reject(Error('Secondary launch timeout')); }, 15000); child.on('error', error => { clearTimeout(timer); reject(error); }); child.on('exit', code => { clearTimeout(timer); code === 0 ? resolve() : reject(Error(`Secondary exit ${code}`)); }); });
-const app = await electron.launch({ executablePath: binary, args: [...prefix, '--smoke', '--workspace', fixture, '--file', 'a b.adoc', '--line', '3'], env });
+// Playwright prepends --no-sandbox on Linux; exercise that packaged argv on every OS.
+const app = await electron.launch({ executablePath: binary, args: ['--no-sandbox', ...prefix, '--smoke', '--workspace', fixture, '--file', 'a b.adoc', '--line', '3'], env });
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(8000); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].showInactive()); page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
   await page.getByRole('heading', { name: 'a b.adoc', exact: true }).waitFor();

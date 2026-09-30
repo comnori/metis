@@ -19,7 +19,7 @@ if (process.env.METIS_USER_DATA) app.setPath('userData', process.env.METIS_USER_
 const launchQueue = new LaunchQueue();
 const appArgument = process.defaultApp ? process.argv.findIndex((value, index) => index > 0 && !value.startsWith('-') && path.resolve(value) === path.resolve(app.getAppPath())) : 0;
 const launchArgs = process.argv.slice(appArgument > 0 ? appArgument + 1 : 1);
-while (launchArgs[0]?.match(/^--(?:inspect(?:-brk)?|remote-debugging-port)=/)) launchArgs.shift();
+while (launchArgs[0]?.match(/^--(?:no-sandbox$|(?:inspect(?:-brk)?|remote-debugging-port)=)/)) launchArgs.shift();
 const ownsLock = app.requestSingleInstanceLock({ args: launchArgs, cwd: process.cwd() });
 let launchWindow: BrowserWindow | undefined;
 if (!ownsLock) app.quit();
