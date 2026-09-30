@@ -20,7 +20,7 @@ The following principles guide implementation and feature decisions. Document me
 * *Meaning and reuse:* Prioritize document meaning over presentation. Use `include`, attributes, and `xref` to compose and reuse documents.
 * *Extensions that preserve the source:* Design plugins and AI to assist document work. Knowledge must remain readable and durable when those features are removed.
 
-See the link:docs/development-philosophy.md[development philosophy] (in Korean) for detailed priorities and decision criteria.
+The principles above guide development priorities and decisions.
 
 == Development environment
 

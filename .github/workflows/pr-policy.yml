@@ -7,6 +7,11 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-policy-${{ github.event.number }}
+  cancel-in-progress: true
 
 jobs:
   policy:
@@ -21,4 +26,11 @@ jobs:
         with:
           node-version: '24.21.0'
       - run: node --test scripts/pr-policy.test.mjs
-      - run: node scripts/pr-policy.mjs
+      - name: Read current PR metadata and validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '{pull_request: .}' > "$RUNNER_TEMP/pr-policy.json"
+          GITHUB_EVENT_PATH="$RUNNER_TEMP/pr-policy.json" node scripts/pr-policy.mjs

@@ -14,12 +14,19 @@ try {
   const page = await browser.newPage();
   await page.goto(server.resolvedUrls.local[0]);
   for (const file of (await readdir(directory)).filter(file => file.endsWith('.mmd')).sort()) {
-    const source = await readFile(path.join(directory, file), 'utf8');
+    const source = (await readFile(path.join(directory, file), 'utf8')).replace(/\r\n/g, '\n');
     const id = file.replace('.mmd', '');
     const svg = await page.evaluate(async ({ source, id }) => {
       const { default: mermaid } = await import('/node_modules/mermaid/dist/mermaid.esm.min.mjs');
       mermaid.initialize({ startOnLoad: false, theme: 'default', deterministicIds: true, deterministicIDSeed: id, flowchart: { htmlLabels: false }, fontFamily: 'Arial, "Malgun Gothic", sans-serif' });
-      return (await mermaid.render(id, source)).svg;
+      const { svg } = await mermaid.render(id, source);
+      const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const element = document.documentElement;
+      const [, , width, height] = element.getAttribute('viewBox').split(/\s+/);
+      // Explicit dimensions prevent image embeds from stretching tall diagrams.
+      element.setAttribute('width', width);
+      element.setAttribute('height', height);
+      return new XMLSerializer().serializeToString(element);
     }, { source, id });
     const hash = createHash('sha256').update(source).digest('hex');
     await writeFile(path.join(directory, `${id}.svg`), `<!-- Mermaid source SHA-256: ${hash} -->\n${svg}\n`);
