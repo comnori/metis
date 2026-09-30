@@ -10,7 +10,28 @@ permissions:
   contents: read
 
 jobs:
+  validation:
+    name: Verify full validation
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+      - name: Require manual full validation of the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          export RELEASE_COMMIT="$(git rev-parse HEAD)"
+          node scripts/release-validation.mjs
   package:
+    needs: validation
     name: Package / ${{ matrix.asset }}
     strategy:
       fail-fast: false

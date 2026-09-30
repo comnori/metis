@@ -1,0 +1,10 @@
+flowchart LR
+    Main["main"] --> Branch["짧은 작업 브랜치"]
+    Branch --> PR["PR · Conventional Commits 제목 · type 라벨"]
+    PR --> Checks["PR 정책 · Desktop 핵심 3개 OS 검사"]
+    Checks --> Squash["대화 해결 · 최신 main · Squash"]
+    Squash --> Protected["보호된 main"]
+    Protected --> Full["수동 전체 검증 · 3개 OS · 개발 및 패키지"]
+    Full --> Tag["성공한 동일 커밋에 릴리스 태그"]
+    Tag --> Gate["동일 SHA 전체 검증 성공 확인"]
+    Gate --> Release["기존 릴리스 패키징 · 발행"]
