@@ -1,4 +1,5 @@
-import { StreamLanguage, syntaxHighlighting, defaultHighlightStyle, foldService } from '@codemirror/language';
+import { StreamLanguage, syntaxHighlighting, defaultHighlightStyle, HighlightStyle, foldService } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 // Lexical editing aid only. Semantic sections and diagnostics come from Asciidoctor.
 export const asciidocLanguage = StreamLanguage.define({
   startState: () => ({ delimiter: '' }),
@@ -26,7 +27,24 @@ export const asciidocLanguage = StreamLanguage.define({
     stream.next(); return null;
   }
 });
-export const asciidocHighlighting = syntaxHighlighting(defaultHighlightStyle);
+
+export const asciidocHighlightStyle = HighlightStyle.define([
+  { tag: tags.heading, fontWeight: '700', color: 'var(--text)' },
+  { tag: tags.link, color: 'var(--secondary)', textDecoration: 'underline' },
+  { tag: tags.emphasis, fontStyle: 'italic' },
+  { tag: tags.strong, fontWeight: '700' },
+  { tag: tags.monospace, color: 'var(--secondary)' },
+  { tag: tags.keyword, color: 'var(--secondary)', fontWeight: '600' },
+  { tag: tags.propertyName, color: 'var(--primary-hover)', fontWeight: '500' },
+  { tag: tags.comment, color: 'var(--faint)', fontStyle: 'italic' },
+  { tag: tags.meta, color: 'var(--muted)' }
+]);
+
+export const asciidocHighlighting = [
+  syntaxHighlighting(asciidocHighlightStyle),
+  syntaxHighlighting(defaultHighlightStyle, { fallback: true })
+];
+
 
 export const asciidocFolding = foldService.of((state, lineStart) => {
   const line = state.doc.lineAt(lineStart);
