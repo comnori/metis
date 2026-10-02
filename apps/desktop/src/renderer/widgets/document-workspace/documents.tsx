@@ -109,14 +109,18 @@ function resolveDocPath(fromDoc: string, targetPath: string): string {
   }
   return parts.join('/');
 }
-function Editor({ tab, changed, save, onSource, onJump }: { tab: Tab; changed(): void; save(): void; onSource?(entry: OutlineEntry): void; onJump?(line: number): void }) {
+function Editor({ tab, changed, save, onSource, onJump, onStats }: { tab: Tab; changed(): void; save(): void; onSource?(entry: OutlineEntry): void; onJump?(line: number): void; onStats?(stats: { line: number; col: number; words: number; chars: number }): void }) {
   const saveCurrent = useRef(save); saveCurrent.current = save;
   const onSourceCurrent = useRef(onSource); onSourceCurrent.current = onSource;
   const onJumpCurrent = useRef(onJump); onJumpCurrent.current = onJump;
+  const onStatsCurrent = useRef(onStats); onStatsCurrent.current = onStats;
   const element = useRef<HTMLDivElement>(null);
   const access = useRef(new Compartment());
   useEffect(() => {
     const readonly = !!tab.baseline.readOnly || tab.baseline.eol === 'mixed';
+    const initText = tab.text;
+    const initWords = initText.trim() ? initText.trim().split(/\s+/).length : 0;
+    onStatsCurrent.current?.({ line: 1, col: 1, words: initWords, chars: initText.length });
     tab.view = new EditorView({ parent: element.current!, state: EditorState.create({ doc: tab.text, extensions: [
       lineNumbers(), foldGutter(), asciidocFolding, history(), asciidocLanguage, asciidocHighlighting,
       autocompletion({ override: [context => complete(context, tab.baseline.relativePath, tab.analysis)] }),
@@ -151,7 +155,17 @@ function Editor({ tab, changed, save, onSource, onJump }: { tab: Tab; changed():
           }
         }
       }),
-      EditorView.updateListener.of(update => { if (update.docChanged) { tab.text = update.state.doc.toString(); changed(); } })] }) });
+      EditorView.updateListener.of(update => {
+        if (update.docChanged) { tab.text = update.state.doc.toString(); changed(); }
+        if (update.docChanged || update.selectionSet) {
+          const head = update.state.selection.main.head;
+          const line = update.state.doc.lineAt(head);
+          const col = head - line.from + 1;
+          const text = update.state.doc.toString();
+          const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+          onStatsCurrent.current?.({ line: line.number, col, words, chars: text.length });
+        }
+      })] }) });
     if (tab.jumpLine) { jump(tab, tab.jumpLine); tab.jumpLine = undefined; }
     return () => { tab.view?.destroy(); tab.view = undefined; };
   }, [tab]);
@@ -159,7 +173,7 @@ function Editor({ tab, changed, save, onSource, onJump }: { tab: Tab; changed():
   return <div className="source" ref={element} />;
 }
 
-export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspectorTarget?: HTMLElement | null; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; favorites: string[]; onToggleFavorite(path: string): void; onSource(entry: OutlineEntry): void; onActive(document?: DocumentSnapshot): void; onAnalysis(path: string, analysis: Analysis): void; onTabsChanged(tabs: DocumentTabSnapshot[], active: string): void; onError(message: string): void; onStatus(message: string): void; onBusy(value: boolean): void; onCommandsChanged(): void }>(function Documents(props, ref) {
+export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspectorTarget?: HTMLElement | null; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; favorites: string[]; onToggleFavorite(path: string): void; onSource(entry: OutlineEntry): void; onActive(document?: DocumentSnapshot): void; onStats?(stats: { line: number; col: number; words: number; chars: number } | undefined): void; onAnalysis(path: string, analysis: Analysis): void; onTabsChanged(tabs: DocumentTabSnapshot[], active: string): void; onError(message: string): void; onStatus(message: string): void; onBusy(value: boolean): void; onCommandsChanged(): void }>(function Documents(props, ref) {
   const tabs = useRef(new Map<string, Tab>());
   const [active, setActive] = useState('');
   const activeRef = useRef('');
@@ -192,7 +206,21 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
     if (!session || current.current.session !== session) return;
     await window.metis.deleteDraft({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath: path }).catch(() => undefined);
   }
-  const select = (path: string) => { activeRef.current = path; setActive(path); };
+  const select = (path: string) => {
+    activeRef.current = path; setActive(path);
+    if (current.current.onStats) {
+      const tab = tabs.current.get(path);
+      if (tab) {
+        const text = tab.text;
+        const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+        const head = tab.view?.state.selection.main.head ?? 0;
+        const line = tab.view ? tab.view.state.doc.lineAt(head) : { number: 1, from: 0 };
+        current.current.onStats({ line: line.number, col: head - line.from + 1, words, chars: text.length });
+      } else {
+        current.current.onStats(undefined);
+      }
+    }
+  };
   function location(): Visit | undefined {
     const tab = tabs.current.get(active), view = tab?.view;
     if (!tab || !view) return;
@@ -425,7 +453,7 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
     {selected?.external && <div className="external-change" role="status">{selected.external.message}<div className="tools">{selected.external.disk && <button disabled={saving.current} onClick={() => setReview({ tab: selected, disk: selected.external!.disk! })}>변경 비교</button>}<button disabled={saving.current} onClick={() => runDocumentCommand('document.inspect')}>다시 확인</button></div><div className="copy-controls"><input aria-label="사본 파일 이름" value={copyName} onChange={event => setCopyName(event.target.value)} /><button disabled={saving.current || !validFolderName(copyName) || !/\.adoc$/i.test(copyName)} onClick={() => keepOrCopy(selected, true)}>다른 이름으로 저장</button></div></div>}
     {review && <Conflict baseline={review.tab.baseline} disk={review.disk} text={review.tab.text} close={() => setReview(undefined)} resolve={resolve} />}
     <div className={`document-body mode-${mode}`}>
-      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} onSource={props.onSource} onJump={line => jump(tab, line)} /></div>)}</div>
+      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} onSource={props.onSource} onJump={line => jump(tab, line)} onStats={stats => { if (path === activeRef.current) current.current.onStats?.(stats); }} /></div>)}</div>
       {selected && props.session && <Preview appearance={props.appearance} stylesheetVersion={props.stylesheetVersion} inspector={false} inspectorTarget={props.inspectorTarget} key={active} position={selected.previewPosition ??= { x: 0, y: 0, outline: 0 }} editorLine={() => selected.view?.state.doc.lineAt(selected.view.state.selection.main.head).number ?? 1} reveal={() => setMode('split')} session={props.session} relativePath={active} text={selected.text} mode={mode} onAnalysis={value => { selected.analysis = value; selected.analysisText = analyzedText; props.onAnalysis(active, value); }} navigate={entry => { setMode('split'); if (entry.relativePath === active) jump(selected, entry.line); else props.onSource(entry); }} />}
     </div>
 
