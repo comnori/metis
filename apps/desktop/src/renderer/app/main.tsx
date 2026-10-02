@@ -84,6 +84,20 @@ function App() {
   const [activeAnalysis, setActiveAnalysis] = useState<Analysis>();
   const [centerView, setCenterView] = useState<'documents' | 'graph'>('documents');
   const [graphOpen, setGraphOpen] = useState(false);
+  const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; path: string; isGraph?: boolean } | null>(null);
+  useEffect(() => {
+    if (!tabContextMenu) return;
+    const dismiss = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return;
+      setTabContextMenu(null);
+    };
+    window.addEventListener('click', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('click', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [tabContextMenu]);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [status, setStatus] = useState('폴더를 열어 시작하세요.');
@@ -422,7 +436,33 @@ function App() {
     </aside>
     {leftVisible && !layout.narrow && <PanelResizer side="left" value={layout.value.left.width} min={180} max={420} resize={layout.resizeLeft} />}
     <main className="center-workspace" tabIndex={-1} aria-label="문서 작업 영역">
-      <div className="workspace-tabs" role="tablist" aria-label="열린 뷰" onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]')], index = tabs.indexOf(event.target as HTMLButtonElement); if (index < 0) return; event.preventDefault(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].focus(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].click(); }}>{documentTabs.map(tab => <div className={`workspace-tab ${centerView === 'documents' && document?.relativePath === tab.path ? 'active' : ''}`} key={tab.path} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); void documents.current?.closeTab(tab.path); } }}><button role="tab" aria-selected={centerView === 'documents' && document?.relativePath === tab.path} title={tab.path} onClick={() => selectDocumentTab(tab.path)}>{tab.dirty ? '● ' : ''}{tab.path.split('/').at(-1)}</button><button className="tab-close" aria-label={`${tab.path} 탭 닫기`} onClick={() => void documents.current?.closeTab(tab.path)}>×</button></div>)}{graphOpen && <div className={`workspace-tab ${centerView === 'graph' ? 'active' : ''}`} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); setGraphOpen(false); setCenterView('documents'); } }}><button role="tab" aria-selected={centerView === 'graph'} onClick={() => setCenterView('graph')}>◎ 그래프</button><button className="tab-close" aria-label="그래프 탭 닫기" onClick={() => { setGraphOpen(false); setCenterView('documents'); }}>×</button></div>}</div>
+      <div className="workspace-tabs" role="tablist" aria-label="열린 뷰" onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]')], index = tabs.indexOf(event.target as HTMLButtonElement); if (index < 0) return; event.preventDefault(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].focus(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].click(); }}>{documentTabs.map(tab => <div className={`workspace-tab ${centerView === 'documents' && document?.relativePath === tab.path ? 'active' : ''}`} key={tab.path} onContextMenu={event => { event.preventDefault(); setTabContextMenu({ x: event.clientX, y: event.clientY, path: tab.path }); }} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); void documents.current?.closeTab(tab.path); } }}><button role="tab" aria-selected={centerView === 'documents' && document?.relativePath === tab.path} title={tab.path} onClick={() => selectDocumentTab(tab.path)}>{tab.dirty ? '● ' : ''}{tab.path.split('/').at(-1)}</button><button className="tab-close" aria-label={`${tab.path} 탭 닫기`} onClick={() => void documents.current?.closeTab(tab.path)}>×</button></div>)}{graphOpen && <div className={`workspace-tab ${centerView === 'graph' ? 'active' : ''}`} onContextMenu={event => { event.preventDefault(); setTabContextMenu({ x: event.clientX, y: event.clientY, path: 'graph', isGraph: true }); }} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); setGraphOpen(false); setCenterView('documents'); } }}><button role="tab" aria-selected={centerView === 'graph'} onClick={() => setCenterView('graph')}>◎ 그래프</button><button className="tab-close" aria-label="그래프 탭 닫기" onClick={() => { setGraphOpen(false); setCenterView('documents'); }}>×</button></div>}</div>
+      {tabContextMenu && (
+        <div
+          className="tab-context-menu"
+          role="menu"
+          aria-label="탭 메뉴"
+          style={{ left: Math.min(window.innerWidth - 180, tabContextMenu.x), top: tabContextMenu.y }}
+          onClick={e => e.stopPropagation()}
+        >
+          {tabContextMenu.isGraph ? (
+            <>
+              <button role="menuitem" onClick={() => { setGraphOpen(false); setCenterView('documents'); setTabContextMenu(null); }}>그래프 탭 닫기</button>
+              <button role="menuitem" disabled={!documentTabs.length} onClick={() => { void documents.current?.closeAllTabs?.(); setTabContextMenu(null); }}>다른 문서 탭 모두 닫기</button>
+            </>
+          ) : (
+            <>
+              <button role="menuitem" onClick={() => { void documents.current?.closeTab(tabContextMenu.path); setTabContextMenu(null); }}>탭 닫기</button>
+              <button role="menuitem" disabled={documentTabs.length <= 1} onClick={() => { void documents.current?.closeOtherTabs?.(tabContextMenu.path); setTabContextMenu(null); }}>다른 탭 닫기</button>
+              <button role="menuitem" disabled={documentTabs.findIndex(t => t.path === tabContextMenu.path) === documentTabs.length - 1} onClick={() => { void documents.current?.closeTabsToRight?.(tabContextMenu.path); setTabContextMenu(null); }}>오른쪽 탭 닫기</button>
+              <button role="menuitem" onClick={() => { void documents.current?.closeAllTabs?.(); setTabContextMenu(null); }}>모든 탭 닫기</button>
+              <div className="menu-divider" />
+              <button role="menuitem" onClick={() => { void window.navigator?.clipboard?.writeText(tabContextMenu.path); setStatus(`${tabContextMenu.path} 경로를 복사했습니다.`); setTabContextMenu(null); }}>문서 경로 복사</button>
+              <button role="menuitem" onClick={() => { toggleFavorite(tabContextMenu.path); setTabContextMenu(null); }}>{favorites.includes(tabContextMenu.path) ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기 추가'}</button>
+            </>
+          )}
+        </div>
+      )}
       {error && !creating && <div className="operation-status" data-phase="failed"><p role="alert"><strong>작업 실패</strong> — {error}</p><button onClick={() => setError('')}>오류 안내 닫기</button>{document && <details><summary>편집 보존·복구 작업</summary><p>저장·외부 변경 문제라면 현재 편집을 보존하고 원문 상태를 확인하세요.</p>{commandButton('document.preserve')}{commandButton('document.inspect')}{commandButton('recovery.open')}{commandButton('recovery.folder')}</details>}</div>}{warning && <div className="notice">{warning}</div>}
       <div className="document-workspace" hidden={centerView !== 'documents' || !document}><Documents inspectorTarget={inspectorTarget} appearance={appearance.value} stylesheetVersion={stylesheetVersion} favorites={favorites} onToggleFavorite={toggleFavorite} onCommandsChanged={() => updateCommands(value => value + 1)} ref={documents} session={session} onSource={entry => { void read({ name: entry.relativePath, relativePath: entry.relativePath, kind: 'document' }, entry.line); }} onActive={value => { reading.current++; setDocument(value); setActiveAnalysis(undefined); }} onAnalysis={(_path, analysis) => setActiveAnalysis(analysis)} onTabsChanged={(tabs) => setDocumentTabs(tabs)} onError={setError} onStatus={setStatus} onBusy={value => { locked.current = value; setBusy(value); }} /></div>
       {session && graphOpen && <div className="graph-tab-workspace" hidden={centerView !== 'graph'}><Relations embedded key={`${session.workspaceId}-${session.workspaceEpoch}-graph`} session={session} initialPath={document?.relativePath} initialMode="graph" close={() => { setGraphOpen(false); setCenterView('documents'); }} open={(source, revision) => { setCenterView('documents'); void read({ name: source.relativePath, relativePath: source.relativePath, kind: 'document' }, source.line, revision); }} /></div>}

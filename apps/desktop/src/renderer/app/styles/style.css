@@ -140,6 +140,81 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; background:
 /* CodeMirror Link Hover Indicator */
 .cm-content.cm-ctrl-pressed .cm-link { cursor: pointer; text-decoration: underline; color: var(--secondary) !important; }
 
+/* CodeMirror Hover Tooltips */
+.cm-tooltip.cm-tooltip-asciidoc {
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  max-width: 320px;
+  line-height: 1.45;
+  pointer-events: none;
+  z-index: 100;
+}
+.cm-tooltip.cm-tooltip-asciidoc code {
+  color: var(--secondary);
+  background: var(--surface-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--document-font-family, monospace);
+  font-size: 0.9em;
+}
+.cm-tooltip.cm-tooltip-asciidoc .tooltip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.cm-tooltip.cm-tooltip-asciidoc .tooltip-body {
+  margin-bottom: 3px;
+  word-break: break-all;
+}
+.cm-tooltip.cm-tooltip-asciidoc .tooltip-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Tab Context Menu */
+.tab-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.tab-context-menu button {
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+}
+.tab-context-menu button:hover:not(:disabled) {
+  background: var(--secondary-soft);
+  color: var(--secondary);
+}
+.tab-context-menu button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tab-context-menu .menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 0;
+}
+
 /* Dark Theme Specific Overrides */
 .app[data-theme="dark"] .cm-gutters { background: var(--canvas) !important; border-right-color: var(--border) !important; color: var(--muted) !important; }
 .app[data-theme="dark"] .cm-activeLine { background: rgba(88, 166, 255, .08) !important; }

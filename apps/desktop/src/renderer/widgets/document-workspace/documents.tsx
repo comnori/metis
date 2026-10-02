@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, hoverTooltip } from '@codemirror/view';
 import { history, historyKeymap, defaultKeymap, undo, redo } from '@codemirror/commands';
 import { foldGutter, foldKeymap } from '@codemirror/language';
 import type { DocumentSnapshot, Session } from '@metis/contracts';
@@ -19,26 +19,26 @@ interface Tab { previewPosition?: PreviewPosition; baseline: DocumentSnapshot; t
 const dirty = (tab: Tab) => tab.text !== normalized(tab.baseline.text) || !!tab.external?.missing;
 interface Visit { path: string; text: string; selection: ReturnType<EditorSelection['toJSON']>; top: number; left: number; mode: 'source' | 'split' | 'preview' }
 export interface DocumentTabSnapshot { path: string; dirty: boolean }
-export interface DocumentsHandle { extensionModel(): import('@metis/contracts').ExtensionModel | undefined; commands(): Command[]; open(document: DocumentSnapshot, line?: number): void; activate(path: string): void; closeTab(path: string): Promise<void>; draft(path: string): string | undefined; restoreDraft(disk: DocumentSnapshot, text: string, expectedDraft: string | undefined): Promise<string | undefined>; isDirty(path: string): boolean; fileChanged(source: string, destination: string, affected: string[]): void; clear(): void; allowLeave(): Promise<boolean> }
+export interface DocumentsHandle { extensionModel(): import('@metis/contracts').ExtensionModel | undefined; commands(): Command[]; open(document: DocumentSnapshot, line?: number): void; activate(path: string): void; closeTab(path: string): Promise<void>; closeOtherTabs?(path: string): Promise<void>; closeTabsToRight?(path: string): Promise<void>; closeAllTabs?(): Promise<void>; draft(path: string): string | undefined; restoreDraft(disk: DocumentSnapshot, text: string, expectedDraft: string | undefined): Promise<string | undefined>; isDirty(path: string): boolean; fileChanged(source: string, destination: string, affected: string[]): void; clear(): void; allowLeave(): Promise<boolean> }
 function jump(tab: Tab, line: number) {
   if (!tab.view) { tab.jumpLine = line; return; }
   const position = tab.view.state.doc.line(Math.max(1, Math.min(tab.view.state.doc.lines, line))).from;
   tab.view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
   tab.view.focus();
 }
-function findLinkAt(text: string, col: number) {
+function findLinkAt(text: string, col: number): { path?: string; anchor?: string; label?: string; start: number; end: number } | null {
   const xrefRegex = /xref:([^\s\[]+)(?:\[(.*?)\])?/g;
   let match;
   while ((match = xrefRegex.exec(text)) !== null) {
     if (col >= match.index && col <= match.index + match[0].length) {
       const [path, anchor] = match[1].split('#');
-      return { path: path || undefined, anchor, label: match[2] };
+      return { path: path || undefined, anchor, label: match[2], start: match.index, end: match.index + match[0].length };
     }
   }
   const includeRegex = /include::([^\s\[]+)\[(.*?)\]/g;
   while ((match = includeRegex.exec(text)) !== null) {
     if (col >= match.index && col <= match.index + match[0].length) {
-      return { path: match[1], label: match[2] };
+      return { path: match[1], label: match[2], start: match.index, end: match.index + match[0].length };
     }
   }
   const anchorRegex = /<<([^\s>,]+)(?:,\s*([^>]*))?>>/g;
@@ -46,10 +46,58 @@ function findLinkAt(text: string, col: number) {
     if (col >= match.index && col <= match.index + match[0].length) {
       const raw = match[1];
       const [path, anchor] = raw.includes('#') ? raw.split('#') : ['', raw];
-      return { path: path || undefined, anchor, label: match[2] };
+      return { path: path || undefined, anchor, label: match[2], start: match.index, end: match.index + match[0].length };
     }
   }
   return null;
+}
+function asciidocHoverTooltip(tab: Tab) {
+  return hoverTooltip((view, pos) => {
+    const line = view.state.doc.lineAt(pos);
+    const col = pos - line.from;
+    const text = line.text;
+
+    const attrRegex = /(?<!\\)\{([\w-]+)\}/g;
+    let match;
+    while ((match = attrRegex.exec(text)) !== null) {
+      if (col >= match.index && col <= match.index + match[0].length) {
+        const attrName = match[1];
+        const attr = tab.analysis?.attributes.find(a => a.name === attrName && a.applied);
+        return {
+          pos: line.from + match.index,
+          end: line.from + match.index + match[0].length,
+          above: true,
+          create() {
+            const dom = document.createElement('div');
+            dom.className = 'cm-tooltip-asciidoc';
+            if (attr) {
+              dom.innerHTML = `<div class="tooltip-title">속성 <code>{${attrName}}</code></div><div class="tooltip-body">${attr.value}</div><div class="tooltip-meta">${attr.relativePath}:${attr.line}</div>`;
+            } else {
+              dom.innerHTML = `<div class="tooltip-title">속성 <code>{${attrName}}</code></div><div class="tooltip-meta">정의되지 않았거나 미적용 속성</div>`;
+            }
+            return { dom };
+          }
+        };
+      }
+    }
+
+    const link = findLinkAt(text, col);
+    if (link) {
+      return {
+        pos: line.from + link.start,
+        end: line.from + link.end,
+        above: true,
+        create() {
+          const dom = document.createElement('div');
+          dom.className = 'cm-tooltip-asciidoc';
+          const targetStr = link.path ? (link.anchor ? `${link.path}#${link.anchor}` : link.path) : `#${link.anchor}`;
+          dom.innerHTML = `<div class="tooltip-title">링크 대상: <code>${targetStr}</code></div><div class="tooltip-meta">Ctrl+클릭하여 바로 이동</div>`;
+          return { dom };
+        }
+      };
+    }
+    return null;
+  });
 }
 function resolveDocPath(fromDoc: string, targetPath: string): string {
   if (!targetPath) return fromDoc;
@@ -72,6 +120,7 @@ function Editor({ tab, changed, save, onSource, onJump }: { tab: Tab; changed():
     tab.view = new EditorView({ parent: element.current!, state: EditorState.create({ doc: tab.text, extensions: [
       lineNumbers(), foldGutter(), asciidocFolding, history(), asciidocLanguage, asciidocHighlighting,
       autocompletion({ override: [context => complete(context, tab.baseline.relativePath, tab.analysis)] }),
+      asciidocHoverTooltip(tab),
       keymap.of([{ key: 'Mod-s', run: () => { saveCurrent.current(); return true; } }, ...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       access.current.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]), EditorView.lineWrapping,
       EditorView.contentAttributes.of({ 'aria-label': '문서 편집기' }),
@@ -294,6 +343,21 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
     },
     activate(path) { const tab = tabs.current.get(path); if (!tab || path === activeRef.current) return; remember(); select(path); current.current.onActive(tab.baseline); changed(); },
     closeTab: close,
+    async closeOtherTabs(path: string) {
+      for (const p of Array.from(tabs.current.keys())) {
+        if (p !== path) await close(p);
+      }
+    },
+    async closeTabsToRight(path: string) {
+      const allPaths = Array.from(tabs.current.keys());
+      const idx = allPaths.indexOf(path);
+      if (idx >= 0) {
+        for (const p of allPaths.slice(idx + 1)) await close(p);
+      }
+    },
+    async closeAllTabs() {
+      for (const p of Array.from(tabs.current.keys())) await close(p);
+    },
     clear() { tabs.current.clear(); back.current = []; forward.current = []; setReview(undefined); select(''); props.onActive(undefined); changed(); }, allowLeave
   }));
   async function save(path: string) {
