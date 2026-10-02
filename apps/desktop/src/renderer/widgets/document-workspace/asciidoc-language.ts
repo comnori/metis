@@ -1,4 +1,4 @@
-import { StreamLanguage, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { StreamLanguage, syntaxHighlighting, defaultHighlightStyle, foldService } from '@codemirror/language';
 // Lexical editing aid only. Semantic sections and diagnostics come from Asciidoctor.
 export const asciidocLanguage = StreamLanguage.define({
   startState: () => ({ delimiter: '' }),
@@ -27,3 +27,34 @@ export const asciidocLanguage = StreamLanguage.define({
   }
 });
 export const asciidocHighlighting = syntaxHighlighting(defaultHighlightStyle);
+
+export const asciidocFolding = foldService.of((state, lineStart) => {
+  const line = state.doc.lineAt(lineStart);
+  const text = line.text;
+
+  const headingMatch = text.match(/^(=+)\s+/);
+  if (headingMatch) {
+    const level = headingMatch[1].length;
+    let end = line.to;
+    for (let i = line.number + 1; i <= state.doc.lines; i++) {
+      const nextLine = state.doc.line(i);
+      const nextMatch = nextLine.text.match(/^(=+)\s+/);
+      if (nextMatch && nextMatch[1].length <= level) break;
+      end = nextLine.to;
+    }
+    if (end > line.to) return { from: line.to, to: end };
+  }
+
+  const delimMatch = text.match(/^(----+|\.\.\.\.+|\+\+\+\+|\/\/\/\/|\*\*\*\*|\|===+)$/);
+  if (delimMatch) {
+    const delim = delimMatch[1];
+    for (let i = line.number + 1; i <= state.doc.lines; i++) {
+      const nextLine = state.doc.line(i);
+      if (nextLine.text.trim() === delim) {
+        return { from: line.to, to: nextLine.to };
+      }
+    }
+  }
+  return null;
+});
+

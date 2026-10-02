@@ -2,9 +2,10 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { history, historyKeymap, defaultKeymap, undo, redo } from '@codemirror/commands';
+import { foldGutter, foldKeymap } from '@codemirror/language';
 import type { DocumentSnapshot, Session } from '@metis/contracts';
 import type { OutlineEntry } from '@metis/contracts';
-import { asciidocLanguage, asciidocHighlighting } from './asciidoc-language';
+import { asciidocLanguage, asciidocHighlighting, asciidocFolding } from './asciidoc-language';
 import { Preview, type PreviewPosition } from './preview';
 import { autocompletion } from '@codemirror/autocomplete';
 import { complete } from './completions';
@@ -25,17 +26,82 @@ function jump(tab: Tab, line: number) {
   tab.view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
   tab.view.focus();
 }
-function Editor({ tab, changed, save }: { tab: Tab; changed(): void; save(): void }) {
+function findLinkAt(text: string, col: number) {
+  const xrefRegex = /xref:([^\s\[]+)(?:\[(.*?)\])?/g;
+  let match;
+  while ((match = xrefRegex.exec(text)) !== null) {
+    if (col >= match.index && col <= match.index + match[0].length) {
+      const [path, anchor] = match[1].split('#');
+      return { path: path || undefined, anchor, label: match[2] };
+    }
+  }
+  const includeRegex = /include::([^\s\[]+)\[(.*?)\]/g;
+  while ((match = includeRegex.exec(text)) !== null) {
+    if (col >= match.index && col <= match.index + match[0].length) {
+      return { path: match[1], label: match[2] };
+    }
+  }
+  const anchorRegex = /<<([^\s>,]+)(?:,\s*([^>]*))?>>/g;
+  while ((match = anchorRegex.exec(text)) !== null) {
+    if (col >= match.index && col <= match.index + match[0].length) {
+      const raw = match[1];
+      const [path, anchor] = raw.includes('#') ? raw.split('#') : ['', raw];
+      return { path: path || undefined, anchor, label: match[2] };
+    }
+  }
+  return null;
+}
+function resolveDocPath(fromDoc: string, targetPath: string): string {
+  if (!targetPath) return fromDoc;
+  const parts = fromDoc.includes('/') ? fromDoc.split('/').slice(0, -1) : [];
+  for (const segment of targetPath.split('/')) {
+    if (segment === '.' || !segment) continue;
+    if (segment === '..') parts.pop();
+    else parts.push(segment);
+  }
+  return parts.join('/');
+}
+function Editor({ tab, changed, save, onSource, onJump }: { tab: Tab; changed(): void; save(): void; onSource?(entry: OutlineEntry): void; onJump?(line: number): void }) {
   const saveCurrent = useRef(save); saveCurrent.current = save;
+  const onSourceCurrent = useRef(onSource); onSourceCurrent.current = onSource;
+  const onJumpCurrent = useRef(onJump); onJumpCurrent.current = onJump;
   const element = useRef<HTMLDivElement>(null);
   const access = useRef(new Compartment());
   useEffect(() => {
     const readonly = !!tab.baseline.readOnly || tab.baseline.eol === 'mixed';
-    tab.view = new EditorView({ parent: element.current!, state: EditorState.create({ doc: tab.text, extensions: [lineNumbers(), history(), asciidocLanguage, asciidocHighlighting,
+    tab.view = new EditorView({ parent: element.current!, state: EditorState.create({ doc: tab.text, extensions: [
+      lineNumbers(), foldGutter(), asciidocFolding, history(), asciidocLanguage, asciidocHighlighting,
       autocompletion({ override: [context => complete(context, tab.baseline.relativePath, tab.analysis)] }),
-      keymap.of([{ key: 'Mod-s', run: () => { saveCurrent.current(); return true; } }, ...defaultKeymap, ...historyKeymap]),
+      keymap.of([{ key: 'Mod-s', run: () => { saveCurrent.current(); return true; } }, ...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       access.current.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]), EditorView.lineWrapping,
       EditorView.contentAttributes.of({ 'aria-label': '문서 편집기' }),
+      EditorView.domEventHandlers({
+        keydown(event, view) {
+          if (event.key === 'Control' || event.key === 'Meta') view.contentDOM.classList.add('cm-ctrl-pressed');
+        },
+        keyup(event, view) {
+          if (event.key === 'Control' || event.key === 'Meta') view.contentDOM.classList.remove('cm-ctrl-pressed');
+        },
+        click(event, view) {
+          if ((event.ctrlKey || event.metaKey) && event.button === 0) {
+            const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+            if (pos !== null) {
+              const line = view.state.doc.lineAt(pos);
+              const link = findLinkAt(line.text, pos - line.from);
+              if (link) {
+                event.preventDefault();
+                const targetDoc = resolveDocPath(tab.baseline.relativePath, link.path ?? '');
+                if (targetDoc === tab.baseline.relativePath && link.anchor) {
+                  const match = tab.analysis?.anchors.find(a => a.id === link.anchor);
+                  if (match) { onJumpCurrent.current?.(match.line); return true; }
+                }
+                onSourceCurrent.current?.({ relativePath: targetDoc, line: 1, id: link.anchor ?? '', title: link.label ?? '', level: 1 });
+                return true;
+              }
+            }
+          }
+        }
+      }),
       EditorView.updateListener.of(update => { if (update.docChanged) { tab.text = update.state.doc.toString(); changed(); } })] }) });
     if (tab.jumpLine) { jump(tab, tab.jumpLine); tab.jumpLine = undefined; }
     return () => { tab.view?.destroy(); tab.view = undefined; };
@@ -43,6 +109,7 @@ function Editor({ tab, changed, save }: { tab: Tab; changed(): void; save(): voi
   useEffect(() => { const readonly = !!tab.baseline.readOnly || tab.baseline.eol === 'mixed'; tab.view?.dispatch({ effects: access.current.reconfigure([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]) }); }, [tab, tab.baseline.readOnly, tab.baseline.eol]);
   return <div className="source" ref={element} />;
 }
+
 export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspectorTarget?: HTMLElement | null; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; favorites: string[]; onToggleFavorite(path: string): void; onSource(entry: OutlineEntry): void; onActive(document?: DocumentSnapshot): void; onAnalysis(path: string, analysis: Analysis): void; onTabsChanged(tabs: DocumentTabSnapshot[], active: string): void; onError(message: string): void; onStatus(message: string): void; onBusy(value: boolean): void; onCommandsChanged(): void }>(function Documents(props, ref) {
   const tabs = useRef(new Map<string, Tab>());
   const [active, setActive] = useState('');
@@ -294,8 +361,9 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
     {selected?.external && <div className="external-change" role="status">{selected.external.message}<div className="tools">{selected.external.disk && <button disabled={saving.current} onClick={() => setReview({ tab: selected, disk: selected.external!.disk! })}>변경 비교</button>}<button disabled={saving.current} onClick={() => runDocumentCommand('document.inspect')}>다시 확인</button></div><div className="copy-controls"><input aria-label="사본 파일 이름" value={copyName} onChange={event => setCopyName(event.target.value)} /><button disabled={saving.current || !validFolderName(copyName) || !/\.adoc$/i.test(copyName)} onClick={() => keepOrCopy(selected, true)}>다른 이름으로 저장</button></div></div>}
     {review && <Conflict baseline={review.tab.baseline} disk={review.disk} text={review.tab.text} close={() => setReview(undefined)} resolve={resolve} />}
     <div className={`document-body mode-${mode}`}>
-      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} /></div>)}</div>
+      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} onSource={props.onSource} onJump={line => jump(tab, line)} /></div>)}</div>
       {selected && props.session && <Preview appearance={props.appearance} stylesheetVersion={props.stylesheetVersion} inspector={false} inspectorTarget={props.inspectorTarget} key={active} position={selected.previewPosition ??= { x: 0, y: 0, outline: 0 }} editorLine={() => selected.view?.state.doc.lineAt(selected.view.state.selection.main.head).number ?? 1} reveal={() => setMode('split')} session={props.session} relativePath={active} text={selected.text} mode={mode} onAnalysis={value => { selected.analysis = value; selected.analysisText = analyzedText; props.onAnalysis(active, value); }} navigate={entry => { setMode('split'); if (entry.relativePath === active) jump(selected, entry.line); else props.onSource(entry); }} />}
     </div>
+
   </section>;
 });

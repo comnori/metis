@@ -67,6 +67,9 @@ function App() {
   const [session, setSession] = useState<Session>();
   const layout = useLayout(session?.viewKey);
   const appearance = useAppearance(session?.viewKey);
+  useEffect(() => {
+    window.document.documentElement.setAttribute('data-theme', appearance.value.previewTheme);
+  }, [appearance.value.previewTheme]);
   const [stylesheet, setStylesheet] = useState<PreviewStylesheet>({ active: false });
   const [stylesheetVersion, setStylesheetVersion] = useState(0);
   const menu = useRef<HTMLDetailsElement>(null), filesButton = useRef<HTMLButtonElement>(null), outlineButton = useRef<HTMLButtonElement>(null);
@@ -144,7 +147,7 @@ function App() {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat || event.altKey || window.document.querySelector('dialog[open]') || !(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === 'p' && event.shiftKey) { event.preventDefault(); if (!locked.current) setPaletteOpen(true); return; }
-      const id = key === 'p' && !event.shiftKey ? 'search.files' : key === 'f' && event.shiftKey ? 'search.text' : key === 's' && !event.shiftKey ? 'document.save' : undefined;
+      const id = (key === 'p' || key === 'o') && !event.shiftKey ? 'search.files' : key === 'f' && event.shiftKey ? 'search.text' : key === 's' && !event.shiftKey ? 'document.save' : undefined;
       if (id) { event.preventDefault(); void dispatch(id); }
     };
     window.addEventListener('keydown', shortcut); return () => window.removeEventListener('keydown', shortcut);
@@ -252,16 +255,20 @@ function App() {
   function beginCreate(kind: 'workspace' | 'directory' | 'document') { createInvoker.current = window.document.activeElement as HTMLElement; setName(kind === 'document' ? 'untitled.adoc' : ''); setError(''); setCreating(kind); }
   async function create(event: React.FormEvent) {
     event.preventDefault();
-    if (!validFolderName(name) || locked.current) return;
-    if (creating === 'workspace') return changeWorkspace(() => window.metis.createWorkspace({ requestId: requestId(), name }));
+    let finalName = name.trim();
+    if (creating === 'document' && !/\.adoc$/i.test(finalName)) {
+      finalName = `${finalName}.adoc`;
+    }
+    if (!validFolderName(finalName) || locked.current) return;
+    if (creating === 'workspace') return changeWorkspace(() => window.metis.createWorkspace({ requestId: requestId(), name: finalName }));
     if (!session) return;
     locked.current = true; setBusy(true); setError('');
     try {
       if (creating === 'document') {
-        const result = await call(() => window.metis.createDocument({ ...scope(session), relativePath: folder, name }));
+        const result = await call(() => window.metis.createDocument({ ...scope(session), relativePath: folder, name: finalName }));
         if (result.ok) { setCreating(undefined); await list(session, folder); documents.current?.open(result.value); setStatus('문서를 만들었습니다.'); } else report(result);
       } else {
-        const result = await call(() => window.metis.createDirectory({ ...scope(session), relativePath: folder, name }));
+        const result = await call(() => window.metis.createDirectory({ ...scope(session), relativePath: folder, name: finalName }));
         if (result.ok) { setCreating(undefined); await list(session, folder); setStatus('폴더를 만들었습니다.'); } else report(result);
       }
     } finally { locked.current = false; setBusy(false); }
@@ -377,7 +384,7 @@ function App() {
     '--document-font-family': appearance.value.documentFontFamily,
     '--document-font-size': `${appearance.value.documentFontSize}px`
   } as React.CSSProperties;
-  return <div className={`app workspace-shell ${leftVisible ? 'show-left' : ''} ${rightVisible ? 'show-right' : ''} ${layout.mobile ? `mobile-${layout.mobile}` : ''}`} style={panelStyle}>
+  return <div data-theme={appearance.value.previewTheme} className={`app workspace-shell ${leftVisible ? 'show-left' : ''} ${rightVisible ? 'show-right' : ''} ${layout.mobile ? `mobile-${layout.mobile}` : ''}`} style={panelStyle}>
     <button className="skip-editor" onClick={() => { const editor = window.document.querySelector<HTMLElement>('.editor-panel:not([hidden]) .cm-content'); if (editor?.getClientRects().length) editor.focus(); else window.document.querySelector<HTMLElement>('main')?.focus(); }}>편집기로 바로 이동</button>
     <nav className="ribbon" aria-label="워크스페이스 리본">
       <details className="workspace-switcher"><summary className="ribbon-button brand-ribbon" aria-label="Metis 작업 공간 전환" title="작업 공간 전환"><span aria-hidden="true">M</span></summary><div className="ribbon-popover"><strong>{session?.name ?? 'Metis'}</strong>{commandButton('workspace.open')}{commandButton('workspace.create')}{session && commandButton('workspace.close')}{recentWarning && <p className="notice">{recentWarning}</p>}{recent.map(item => <article key={item.id}>
@@ -432,7 +439,7 @@ function App() {
       {layout.value.right.active === 'relations' && <section aria-label="문서 관계"><h2>관계</h2>{activeAnalysis?.relations.length ? activeAnalysis.relations.map((item, index) => <button className="inspector-item" key={index} onClick={() => void read({ name: item.destination?.relativePath ?? item.relativePath, relativePath: item.destination?.relativePath ?? item.relativePath, kind: 'document' }, item.destination?.line ?? item.line)}>{item.kind === 'xref' ? '참조' : '포함'} · {item.target}</button>) : <p>활성 문서에서 해석된 관계가 없습니다.</p>}</section>}
       {layout.value.right.active === 'diagnostics' && <section aria-label="문서 진단"><h2>진단</h2>{activeAnalysis?.diagnostics.length ? activeAnalysis.diagnostics.map((item, index) => <button className="inspector-item" key={index} onClick={() => void read({ name: item.relativePath, relativePath: item.relativePath, kind: 'document' }, item.line)}>{item.line} · {item.message}</button>) : <p>활성 문서의 진단이 없습니다.</p>}</section>}
     </div></aside>
-    {settingsOpen && <ViewSettings value={layout.value} update={layout.update} appearance={appearance.value} updateAppearance={appearance.update} workspace={!!session} stylesheet={stylesheet} selectStylesheet={selectStylesheet} reloadStylesheet={reloadStylesheet} clearStylesheet={clearStylesheet} warning={[layout.warning, appearance.warning].filter(Boolean).join(' ')} close={() => setSettingsOpen(false)} />}<footer role="status">{error ? '작업 실패 · 오류 안내와 해결 행동을 확인하세요.' : busy ? '작업 진행 중 · 완료될 때까지 기다려 주세요.' : status}</footer>{paletteOpen && <CommandPalette commands={commands} close={() => setPaletteOpen(false)} execute={id => { void dispatch(id); }} />}
+    {settingsOpen && <ViewSettings value={layout.value} update={layout.update} appearance={appearance.value} updateAppearance={appearance.update} workspace={!!session} stylesheet={stylesheet} selectStylesheet={selectStylesheet} reloadStylesheet={reloadStylesheet} clearStylesheet={clearStylesheet} warning={[layout.warning, appearance.warning].filter(Boolean).join(' ')} close={() => setSettingsOpen(false)} />}<footer role="status"><span className="footer-status-text">{error ? '작업 실패 · 오류 안내와 해결 행동을 확인하세요.' : busy ? '작업 진행 중 · 완료될 때까지 기다려 주세요.' : status}</span>{document && <span className="footer-document-stats"><span className="footer-stat-badge">UTF-8{document.bom ? ' BOM' : ''}</span><span className="footer-stat-badge">{document.eol.toUpperCase()}</span><span className="footer-stat-badge">{document.readOnly ? '읽기 전용' : '편집 가능'}</span></span>}</footer>{paletteOpen && <CommandPalette commands={commands} close={() => setPaletteOpen(false)} execute={id => { void dispatch(id); }} />}
     {helpOpen && <GettingStarted workspace={session?.name} documentPath={document?.relativePath} readOnly={session?.readOnly} close={() => setHelpOpen(false)} showHints={() => { setHintsHidden(false); setHelpOpen(false); setStatus('시작 화면 안내를 다시 표시합니다. 문서가 열려 있으면 탭을 닫은 빈 화면에서 확인하세요.'); }} />}
     {extensionsOpen && <ExtensionsPanel runtime={extensions} close={() => setExtensionsOpen(false)} />}
     {extensionView && <ExtensionView key={`${extensionView.owner}-${extensionView.id}`} runtime={extensions} {...extensionView} close={() => setExtensionView(undefined)} />}
