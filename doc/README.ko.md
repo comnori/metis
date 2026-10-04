@@ -100,6 +100,46 @@ $metisPackage = Get-Content .pre04-runs/latest-package.txt
 
 위 예시는 Windows x64 기준입니다. Linux의 패키지 GUI 검사는 `xvfb-run -a npm run test:integration:packaged`로 실행합니다.
 
+## Git·CI·릴리즈 운영
+
+`main` 중심으로 개발하며 짧은 작업 브랜치와 PR은 필요할 때 사용합니다. 작은 변경은 `main`에 직접 push할 수 있고, 검토나 자동 Core 검사가 필요하면 PR을 만듭니다. 이 구성은 브랜치 보호를 강제하지 않습니다.
+
+```mermaid
+flowchart TD
+    Change["개발 변경"] --> Main["main 직접 push"]
+    Change --> PR["선택적으로 main 대상 PR 생성"]
+    PR --> Core["Core 자동 실행 · Windows / macOS / Linux"]
+    Manual["Desktop Full 수동 실행"] --> Target["main 또는 열린 PR의 병합 커밋"]
+    Target --> Full["Core + 개발 앱·패키지 통합 검사 · 3개 OS"]
+    Release["main에서 Desktop release 수동 실행"] --> Bump["patch / minor / major 선택"]
+    Bump --> Verify["Core · 패키징 · 보안 검증"]
+    Verify --> Publish["버전 커밋 + v태그 + GitHub Release"]
+```
+
+| 워크플로 | 실행 조건 | 검사 범위 |
+| --- | --- | --- |
+| Desktop Core | `main` 대상 PR 생성·코드 갱신·재오픈 | 3개 OS의 `npm ci`, `npm run check`; 새 PR 커밋이 올라오면 이전 Core 실행 취소 |
+| Desktop Full | 수동 전용 | 3개 OS의 Core·개발 앱 통합 검사·패키징·패키지 통합 검사 |
+| Desktop release | `main`에서 수동 전용 | 자동 버전 증가·Core·패키징·기존 보안 검증·게시 |
+
+`main`이나 태그에 push해도 검사와 릴리즈는 자동 실행되지 않습니다. Full은 선택 사항이며 병합·릴리즈의 필수 조건으로 두지 않습니다.
+
+**GitHub → Actions → Desktop Full → Run workflow**에서 `pr_number`를 비우면 `main`을 검사합니다. `main`을 대상으로 하는 열린 PR 번호를 입력하면 해당 PR의 병합 커밋을 검사합니다. 세 OS는 하나로 고정된 커밋 SHA를 사용합니다. 잘못된 번호, 닫힌 PR, 병합 충돌이 있는 PR은 검사 전에 실패합니다. Full 결과는 Actions에서 확인하며 PR 필수 체크로 등록하지 않습니다.
+
+릴리즈는 **Actions → Desktop release → Run workflow**에서 브랜치 **main**과 `bump`를 선택합니다.
+
+| 증가 종류 | `0.2.3` 기준 예시 |
+| --- | --- |
+| `patch` (기본값) | `0.2.4` |
+| `minor` | `0.3.0` |
+| `major` | `1.0.0` |
+
+루트·모든 workspace의 패키지 버전과 루트 lockfile을 함께 갱신합니다. 실험용 프로젝트와 의존성 버전은 변경하지 않습니다. 세 OS는 동일한 버전 커밋을 패키징합니다. 기존 ZIP 배포 파일·체크섬·릴리즈 노트와 VirusTotal 정책을 유지합니다. 최초·minor·major 릴리즈는 스캔하며 patch는 생략합니다. 스캔에는 저장소 secret `VIRUSTOTAL_API_KEY`가 필요합니다.
+
+패키징과 보안 검증을 모두 통과한 뒤에만 버전 커밋과 `vX.Y.Z` 태그를 atomic push합니다. push 직전에 `main`이 변경됐으면 종료하므로 새 수동 릴리즈를 시작합니다. 릴리즈 실행은 직렬화합니다. 게시 job에는 `contents: write`와 버전 커밋·태그 push를 허용하는 저장소 규칙이 필요합니다.
+
+게시는 draft 생성 → 파일 업로드·검증 → 공개 순서로 진행합니다. push 이후 게시가 실패하면 같은 실행에서 **Re-run failed jobs**를 선택합니다. 준비한 커밋과 태그를 재사용해 버전을 다시 증가시키지 않으며, 미완성 draft는 이어서 완성하고 이미 공개된 Release는 일치 여부를 확인해 중복 생성을 막습니다. 후보 커밋과 패키지 artifact 보관 기간은 14일이므로 그 안에 재시도해야 합니다. **Re-run all jobs**는 준비 단계를 다시 실행하므로 push 성공 이후의 복구 방법으로 사용하지 않습니다.
+
 ## Respect — Obsidian과 AsciiDoc
 
 Metis는 Obsidian과 AsciiDoc에서 받은 영감을 존중합니다.

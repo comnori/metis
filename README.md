@@ -100,6 +100,46 @@ $metisPackage = Get-Content .pre04-runs/latest-package.txt
 
 This example targets Windows x64. On Linux, run packaged GUI tests with `xvfb-run -a npm run test:integration:packaged`.
 
+## Git, CI, and releases
+
+Development uses `main` with optional short-lived branches and PRs. Small changes can be pushed directly to `main`; PRs are useful when a review or automatic Core checks are wanted. Branch protection is not required by this workflow.
+
+```mermaid
+flowchart TD
+    Change["Development change"] --> Main["Push directly to main"]
+    Change --> PR["Optional PR to main"]
+    PR --> Core["Automatic Core · Windows / macOS / Linux"]
+    Manual["Run Desktop Full manually"] --> Target["main or open PR merge commit"]
+    Target --> Full["Core + development and packaged integration · 3 OSes"]
+    Release["Run Desktop release on main"] --> Bump["Choose patch / minor / major"]
+    Bump --> Verify["Core · packaging · security verification"]
+    Verify --> Publish["Version commit + v tag + GitHub Release"]
+```
+
+| Workflow | Trigger | Checks |
+| --- | --- | --- |
+| Desktop Core | PR opened, updated, or reopened against `main` | `npm ci` and `npm run check` on all three OSes; newer PR commits cancel older Core runs |
+| Desktop Full | Manual only | Core, development integration, packaging, and packaged integration on all three OSes |
+| Desktop release | Manual only, from `main` | Automatic version increment, Core, packaging, existing security verification, and publication |
+
+Pushing to `main` or pushing a tag does not trigger validation or a release. Full is optional and is not a prerequisite for merging or releasing.
+
+In **GitHub → Actions → Desktop Full → Run workflow**, leave `pr_number` empty to validate `main`, or enter an open PR number targeting `main` to validate its merge commit. The workflow resolves one commit SHA for all three OSes. Invalid, closed, or conflicting PRs fail before validation starts. Full results are available in Actions; this workflow is not a required PR check.
+
+To release, select **Actions → Desktop release → Run workflow**, choose branch **main**, and choose `bump`:
+
+| Increment | Example from `0.2.3` |
+| --- | --- |
+| `patch` (default) | `0.2.4` |
+| `minor` | `0.3.0` |
+| `major` | `1.0.0` |
+
+The workflow updates the root and workspace package versions and root lockfile together. It does not change experiment packages or dependency versions. Every OS packages the same prepared version commit. The existing ZIP assets, checksums, release notes, and VirusTotal policy are retained: initial, minor, and major releases require a scan; patch releases skip it. Scans require the `VIRUSTOTAL_API_KEY` repository secret.
+
+The version commit and `vX.Y.Z` tag are pushed atomically only after all packaging and security checks pass. If `main` changes before that push, the run stops; start a new manual release. Release runs are serialized. Publication needs `contents: write` and repository rules that allow the workflow to push the version commit and tag.
+
+Publication creates a draft, uploads and verifies its assets, then makes it public. If publishing fails after the push, use **Re-run failed jobs** on the same run. This reuses the exact candidate and tag without another version increment, resumes an incomplete draft, and verifies any existing public Release instead of creating a duplicate. Candidate and package artifacts are kept for 14 days, so retry within that period. Re-running all jobs starts preparation again and is not the recovery procedure after a successful push.
+
 ## Respect — Obsidian and AsciiDoc
 
 Metis respects and draws inspiration from Obsidian and AsciiDoc.
