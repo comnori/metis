@@ -59,7 +59,8 @@
     "eval:ai": "node scripts/m3-04-model-eval.mjs",
     "test:integration": "node scripts/integration.mjs",
     "test:integration:packaged": "node scripts/integration.mjs --packaged",
-    "test:tooling": "node --test scripts/integration-support.test.mjs scripts/ai-evaluation-support.test.mjs scripts/package-cleanup.test.mjs scripts/test-cache-cleanup.test.mjs scripts/virustotal-release.test.mjs scripts/release-version.test.mjs"
+    "test:tooling": "node --test scripts/integration-support.test.mjs scripts/ai-evaluation-support.test.mjs scripts/package-cleanup.test.mjs scripts/test-cache-cleanup.test.mjs scripts/virustotal-release.test.mjs scripts/pr-policy.test.mjs scripts/release-validation.test.mjs scripts/release-version.test.mjs",
+    "test:desktop:core": "node scripts/desktop-core.mjs"
   },
   "devDependencies": {
     "@asciidoctor/core": "4.0.11",

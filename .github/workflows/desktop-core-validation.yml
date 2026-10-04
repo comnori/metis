@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   core:
-    name: Core / ${{ matrix.os }}
+    name: Desktop core / ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:

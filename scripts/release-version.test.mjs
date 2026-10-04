@@ -248,7 +248,7 @@ test('workflow event contracts keep heavy checks and publication manual', async 
   const workflows = path.resolve(import.meta.dirname, '../.github/workflows');
   const source = async file => (await readFile(path.join(workflows, file), 'utf8')).replaceAll('\r\n', '\n');
   const events = text => [...text.match(/^on:\n([\s\S]*?)(?=^\S)/m)[1].matchAll(/^  ([a-z_]+):/gm)].map(match => match[1]);
-  const core = await source('core-validation.yml');
+  const core = await source('desktop-core-validation.yml');
   const full = await source('desktop-validation.yml');
   const release = await source('release.yml');
   assert.deepEqual(events(core), ['pull_request']);

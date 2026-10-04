@@ -1,0 +1,36 @@
+name: PR policy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-policy-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: PR policy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+      - run: node --test scripts/pr-policy.test.mjs
+      - name: Read current PR metadata and validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '{pull_request: .}' > "$RUNNER_TEMP/pr-policy.json"
+          GITHUB_EVENT_PATH="$RUNNER_TEMP/pr-policy.json" node scripts/pr-policy.mjs

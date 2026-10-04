@@ -36,7 +36,7 @@ jobs:
         run: node scripts/validation-target.mjs
 
   desktop:
-    name: Full / ${{ matrix.os }}
+    name: Desktop full / ${{ matrix.os }}
     needs: target
     strategy:
       fail-fast: false
@@ -81,6 +81,9 @@ jobs:
           retention-days: 14
           include-hidden-files: true
           path: |
+            .pre04-runs/core-*/results.json
+            .pre04-runs/core-*/*.log
+            .pre04-runs/core-*/*.png
             .pre04-runs/integration-*/results.json
             .pre04-runs/integration-*/*.log
             .pre04-runs/smoke-*/results.json
@@ -92,3 +95,7 @@ jobs:
 
             .pre04-runs/m3-*/results.json
             .pre04-runs/m3-*/*.png
+            .pre04-runs/m4-*/results.json
+            .pre04-runs/m4-*/*.png
+            .pre04-runs/ux-*/results.json
+            .pre04-runs/ux-*/*.png
