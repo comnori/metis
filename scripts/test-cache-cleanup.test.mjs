@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, access, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, access, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { cacheNames, cleanupTestCache, withTestCacheCleanup } from './test-cache-cleanup.mjs';
 
 async function fixture(t) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'metis-cache-'));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'metis-cache-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const profile = path.join(root, '.pre04-runs', 'smoke-123', 'profile');
   for (const name of [...cacheNames, 'recovery', 'Local Storage']) {
