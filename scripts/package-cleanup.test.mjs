@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readdir, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { cleanupPackages } from './package-cleanup.mjs';
 
 test('retains latest two packages and unrelated evidence', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'metis-cleanup-'));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'metis-cleanup-')));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runs = path.join(root, '.pre04-runs');
   for (const name of ['package-9', 'package-10', 'package-11', 'smoke-1', 'package-not-a-run']) {

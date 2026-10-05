@@ -1,16 +1,43 @@
-name: Desktop validation
+name: Desktop Full
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Open PR number; leave empty to validate main'
+        type: string
+        required: false
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  target:
+    name: Resolve validation target
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.target.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+      - name: Resolve main or PR merge commit
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: node scripts/validation-target.mjs
+
   desktop:
-    name: Desktop / ${{ matrix.os }}
+    name: Desktop full / ${{ matrix.os }}
+    needs: target
     strategy:
       fail-fast: false
       matrix:
@@ -20,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ needs.target.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v7
         with:
@@ -53,6 +81,9 @@ jobs:
           retention-days: 14
           include-hidden-files: true
           path: |
+            .pre04-runs/core-*/results.json
+            .pre04-runs/core-*/*.log
+            .pre04-runs/core-*/*.png
             .pre04-runs/integration-*/results.json
             .pre04-runs/integration-*/*.log
             .pre04-runs/smoke-*/results.json
@@ -64,3 +95,7 @@ jobs:
 
             .pre04-runs/m3-*/results.json
             .pre04-runs/m3-*/*.png
+            .pre04-runs/m4-*/results.json
+            .pre04-runs/m4-*/*.png
+            .pre04-runs/ux-*/results.json
+            .pre04-runs/ux-*/*.png

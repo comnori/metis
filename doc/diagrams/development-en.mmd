@@ -1,0 +1,6 @@
+flowchart LR
+    Install["npm ci"] --> Start["npm start"]
+    Start --> Build["Build → apps/desktop/dist"]
+    Build --> Run["Launch Electron"]
+    Run --> Edit["Close app · edit source"]
+    Edit --> Start

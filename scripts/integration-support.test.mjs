@@ -5,9 +5,9 @@ import path from 'node:path';
 import os from 'node:os';
 import { packageRelativePath, latestExecutable, runLogged } from './integration-support.mjs';
 async function fixture(t) {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'metis-integration-test '));
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'metis-integration-test ')));
   t.after(async () => {
-    if (path.dirname(root) !== path.resolve(os.tmpdir()) || !path.basename(root).startsWith('metis-integration-')) throw Error('Cleanup boundary');
+    if (path.dirname(root) !== await realpath(os.tmpdir()) || !path.basename(root).startsWith('metis-integration-')) throw Error('Cleanup boundary');
     await rm(root, { recursive: true, force: true });
   });
   await mkdir(path.join(root, '.pre04-runs'));
