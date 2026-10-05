@@ -1,8 +1,8 @@
 = Git 전략
 
-image::diagrams/git-policy.svg[1인 개발의 검사와 릴리즈 흐름]
+image::diagrams/git-policy-ko.svg[1인 개발의 검사와 릴리즈 흐름]
 
-link:diagrams/git-policy.mmd[Mermaid 원본]
+link:diagrams/git-policy-ko.mmd[Mermaid 원본]
 
 == 브랜치와 병합
 
