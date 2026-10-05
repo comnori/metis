@@ -59,6 +59,7 @@ async function call<T>(work: () => Promise<Result<T>>): Promise<Result<T>> {
 }
 function App() {
   const documents = useRef<DocumentsHandle>(null);
+  const [inspectorTarget, setInspectorTarget] = useState<HTMLDivElement | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hideHints, setHideHints] = useState(() => { try { return localStorage.getItem('metis.welcome.hidden.v1') === 'true'; } catch { return false; } });
@@ -66,6 +67,9 @@ function App() {
   const [session, setSession] = useState<Session>();
   const layout = useLayout(session?.viewKey);
   const appearance = useAppearance(session?.viewKey);
+  useEffect(() => {
+    window.document.documentElement.setAttribute('data-theme', appearance.value.previewTheme);
+  }, [appearance.value.previewTheme]);
   const [stylesheet, setStylesheet] = useState<PreviewStylesheet>({ active: false });
   const [stylesheetVersion, setStylesheetVersion] = useState(0);
   const menu = useRef<HTMLDetailsElement>(null), filesButton = useRef<HTMLButtonElement>(null), outlineButton = useRef<HTMLButtonElement>(null);
@@ -80,6 +84,21 @@ function App() {
   const [activeAnalysis, setActiveAnalysis] = useState<Analysis>();
   const [centerView, setCenterView] = useState<'documents' | 'graph'>('documents');
   const [graphOpen, setGraphOpen] = useState(false);
+  const [editorStats, setEditorStats] = useState<{ line: number; col: number; words: number; chars: number }>();
+  const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; path: string; isGraph?: boolean } | null>(null);
+  useEffect(() => {
+    if (!tabContextMenu) return;
+    const dismiss = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return;
+      setTabContextMenu(null);
+    };
+    window.addEventListener('click', dismiss);
+    window.addEventListener('keydown', dismiss);
+    return () => {
+      window.removeEventListener('click', dismiss);
+      window.removeEventListener('keydown', dismiss);
+    };
+  }, [tabContextMenu]);
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [status, setStatus] = useState('폴더를 열어 시작하세요.');
@@ -143,7 +162,7 @@ function App() {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat || event.altKey || window.document.querySelector('dialog[open]') || !(event.ctrlKey || event.metaKey)) return;
       const key = event.key.toLowerCase();
       if (key === 'p' && event.shiftKey) { event.preventDefault(); if (!locked.current) setPaletteOpen(true); return; }
-      const id = key === 'p' && !event.shiftKey ? 'search.files' : key === 'f' && event.shiftKey ? 'search.text' : key === 's' && !event.shiftKey ? 'document.save' : undefined;
+      const id = (key === 'p' || key === 'o') && !event.shiftKey ? 'search.files' : key === 'f' && event.shiftKey ? 'search.text' : key === 's' && !event.shiftKey ? 'document.save' : undefined;
       if (id) { event.preventDefault(); void dispatch(id); }
     };
     window.addEventListener('keydown', shortcut); return () => window.removeEventListener('keydown', shortcut);
@@ -251,16 +270,20 @@ function App() {
   function beginCreate(kind: 'workspace' | 'directory' | 'document') { createInvoker.current = window.document.activeElement as HTMLElement; setName(kind === 'document' ? 'untitled.adoc' : ''); setError(''); setCreating(kind); }
   async function create(event: React.FormEvent) {
     event.preventDefault();
-    if (!validFolderName(name) || locked.current) return;
-    if (creating === 'workspace') return changeWorkspace(() => window.metis.createWorkspace({ requestId: requestId(), name }));
+    let finalName = name.trim();
+    if (creating === 'document' && !/\.adoc$/i.test(finalName)) {
+      finalName = `${finalName}.adoc`;
+    }
+    if (!validFolderName(finalName) || locked.current) return;
+    if (creating === 'workspace') return changeWorkspace(() => window.metis.createWorkspace({ requestId: requestId(), name: finalName }));
     if (!session) return;
     locked.current = true; setBusy(true); setError('');
     try {
       if (creating === 'document') {
-        const result = await call(() => window.metis.createDocument({ ...scope(session), relativePath: folder, name }));
+        const result = await call(() => window.metis.createDocument({ ...scope(session), relativePath: folder, name: finalName }));
         if (result.ok) { setCreating(undefined); await list(session, folder); documents.current?.open(result.value); setStatus('문서를 만들었습니다.'); } else report(result);
       } else {
-        const result = await call(() => window.metis.createDirectory({ ...scope(session), relativePath: folder, name }));
+        const result = await call(() => window.metis.createDirectory({ ...scope(session), relativePath: folder, name: finalName }));
         if (result.ok) { setCreating(undefined); await list(session, folder); setStatus('폴더를 만들었습니다.'); } else report(result);
       }
     } finally { locked.current = false; setBusy(false); }
@@ -337,7 +360,7 @@ function App() {
     { id: 'workspace.refresh', label: '폴더 새로 고침', reason: folderReady, run: () => list(session!, folder) },
     { id: 'workspace.newDocument', label: '새 문서', reason: writable, run: () => beginCreate('document') },
     { id: 'workspace.newDirectory', label: '새 폴더', reason: writable, run: () => beginCreate('directory') },
-    { id: 'search.text', label: '검색', shortcut: 'Ctrl/Cmd+Shift+F', reason: needsWorkspace, run: () => { setSearchMode('text'); if (layout.narrow) layout.setMobile('left'); else layout.update({ ...layout.value, left: { ...layout.value.left, open: true, active: 'search' } }); } },
+    { id: 'search.text', label: '검색', shortcut: 'Ctrl/Cmd+Shift+F', reason: needsWorkspace, run: () => { setSearchMode('text'); if (layout.narrow) layout.setMobile('left'); layout.update({ ...layout.value, left: { ...layout.value.left, open: true, active: 'search' } }); } },
     { id: 'search.files', label: '빠른 열기', shortcut: 'Ctrl/Cmd+P', reason: needsWorkspace, run: () => setSearchMode('files') },
     { id: 'proposal.open', label: '변경 제안 검토', reason: () => needsWorkspace() ?? (!document ? '먼저 문서를 열어 주세요.' : undefined), run: () => setProposalOpen(true) },
     { id: 'semantic.open', label: '의미·텍스트 비교', reason: () => needsWorkspace() ?? (!document ? '먼저 문서를 열어 주세요.' : undefined), run: () => setSemanticOpen(true) },
@@ -376,7 +399,7 @@ function App() {
     '--document-font-family': appearance.value.documentFontFamily,
     '--document-font-size': `${appearance.value.documentFontSize}px`
   } as React.CSSProperties;
-  return <div className={`app workspace-shell ${leftVisible ? 'show-left' : ''} ${rightVisible ? 'show-right' : ''} ${layout.mobile ? `mobile-${layout.mobile}` : ''}`} style={panelStyle}>
+  return <div data-theme={appearance.value.previewTheme} className={`app workspace-shell ${leftVisible ? 'show-left' : ''} ${rightVisible ? 'show-right' : ''} ${layout.mobile ? `mobile-${layout.mobile}` : ''}`} style={panelStyle}>
     <button className="skip-editor" onClick={() => { const editor = window.document.querySelector<HTMLElement>('.editor-panel:not([hidden]) .cm-content'); if (editor?.getClientRects().length) editor.focus(); else window.document.querySelector<HTMLElement>('main')?.focus(); }}>편집기로 바로 이동</button>
     <nav className="ribbon" aria-label="워크스페이스 리본">
       <details className="workspace-switcher"><summary className="ribbon-button brand-ribbon" aria-label="Metis 작업 공간 전환" title="작업 공간 전환"><span aria-hidden="true">M</span></summary><div className="ribbon-popover"><strong>{session?.name ?? 'Metis'}</strong>{commandButton('workspace.open')}{commandButton('workspace.create')}{session && commandButton('workspace.close')}{recentWarning && <p className="notice">{recentWarning}</p>}{recent.map(item => <article key={item.id}>
@@ -409,14 +432,40 @@ function App() {
         {sidebarCommandButton('workspace.newDirectory', 'folder', '새 폴더')}{sidebarCommandButton('workspace.newDocument', 'document', '새 문서')}</div>
       <nav className="file-tree" aria-label="파일 탐색">{treeRows()}</nav>
       {loading ? <p>목록을 읽고 있습니다.</p> : !entries.length && <p>표시할 폴더나 AsciiDoc 문서가 없습니다.</p>}</>}</div>}
-      {layout.value.left.active === 'search' && session && <Search embedded key={`${session.workspaceId}-${session.workspaceEpoch}-text`} memory={searchMemory.current.text ??= {}} session={session} initialMode="text" close={() => { if (layout.narrow) layout.setMobile(undefined); else layout.update({ ...layout.value, left: { ...layout.value.left, open: false } }); }} open={hit => { void read({ name: hit.label, relativePath: hit.relativePath, kind: 'document' }, hit.kind === 'file' ? undefined : hit.line, hit.revision); }} />}
+      {layout.value.left.active === 'search' && session && <Search embedded key={`${session.workspaceId}-${session.workspaceEpoch}-text`} memory={searchMemory.current.text ??= {}} session={session} initialMode="text" close={() => { if (layout.narrow) layout.setMobile(undefined); layout.update({ ...layout.value, left: { ...layout.value.left, active: 'files', open: layout.narrow ? layout.value.left.open : false } }); window.document.querySelector<HTMLButtonElement>('.ribbon-button[aria-label="검색"]')?.focus(); }} open={hit => { void read({ name: hit.label, relativePath: hit.relativePath, kind: 'document' }, hit.kind === 'file' ? undefined : hit.line, hit.revision); }} />}
       {layout.value.left.active === 'favorites' && <div className="sidebar-panel favorites-panel"><h2>즐겨찾기</h2>{favorites.length ? favorites.map(path => <div className={`favorite-row ${document?.relativePath === path ? 'active' : ''}`} key={path}><button title={path} onClick={() => void read({ name: path.split('/').at(-1) ?? path, relativePath: path, kind: 'document' })}>{path}</button><button aria-label={`${path} 즐겨찾기 제거`} onClick={() => toggleFavorite(path)}>★</button></div>) : <p>즐겨찾기한 문서가 없습니다.</p>}</div>}
     </aside>
     {leftVisible && !layout.narrow && <PanelResizer side="left" value={layout.value.left.width} min={180} max={420} resize={layout.resizeLeft} />}
     <main className="center-workspace" tabIndex={-1} aria-label="문서 작업 영역">
-      <div className="workspace-tabs" role="tablist" aria-label="열린 뷰" onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]')], index = tabs.indexOf(event.target as HTMLButtonElement); if (index < 0) return; event.preventDefault(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].focus(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].click(); }}>{documentTabs.map(tab => <div className={`workspace-tab ${centerView === 'documents' && document?.relativePath === tab.path ? 'active' : ''}`} key={tab.path}><button role="tab" aria-selected={centerView === 'documents' && document?.relativePath === tab.path} title={tab.path} onClick={() => selectDocumentTab(tab.path)}>{tab.dirty ? '● ' : ''}{tab.path.split('/').at(-1)}</button><button className="tab-close" aria-label={`${tab.path} 탭 닫기`} onClick={() => void documents.current?.closeTab(tab.path)}>×</button></div>)}{graphOpen && <div className={`workspace-tab ${centerView === 'graph' ? 'active' : ''}`}><button role="tab" aria-selected={centerView === 'graph'} onClick={() => setCenterView('graph')}>◎ 그래프</button><button className="tab-close" aria-label="그래프 탭 닫기" onClick={() => { setGraphOpen(false); setCenterView('documents'); }}>×</button></div>}</div>
+      <div className="workspace-tabs" role="tablist" aria-label="열린 뷰" onKeyDown={event => { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]')], index = tabs.indexOf(event.target as HTMLButtonElement); if (index < 0) return; event.preventDefault(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].focus(); tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : Math.min(tabs.length - 1, Math.max(0, index + (event.key === 'ArrowRight' ? 1 : -1)))].click(); }}>{documentTabs.map(tab => <div className={`workspace-tab ${centerView === 'documents' && document?.relativePath === tab.path ? 'active' : ''}`} key={tab.path} onContextMenu={event => { event.preventDefault(); setTabContextMenu({ x: event.clientX, y: event.clientY, path: tab.path }); }} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); void documents.current?.closeTab(tab.path); } }}><button role="tab" aria-selected={centerView === 'documents' && document?.relativePath === tab.path} title={tab.path} onClick={() => selectDocumentTab(tab.path)}>{tab.dirty ? '● ' : ''}{tab.path.split('/').at(-1)}</button><button className="tab-close" aria-label={`${tab.path} 탭 닫기`} onClick={() => void documents.current?.closeTab(tab.path)}>×</button></div>)}{graphOpen && <div className={`workspace-tab ${centerView === 'graph' ? 'active' : ''}`} onContextMenu={event => { event.preventDefault(); setTabContextMenu({ x: event.clientX, y: event.clientY, path: 'graph', isGraph: true }); }} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); setGraphOpen(false); setCenterView('documents'); } }}><button role="tab" aria-selected={centerView === 'graph'} onClick={() => setCenterView('graph')}>◎ 그래프</button><button className="tab-close" aria-label="그래프 탭 닫기" onClick={() => { setGraphOpen(false); setCenterView('documents'); }}>×</button></div>}</div>
+      {tabContextMenu && (
+        <div
+          className="tab-context-menu"
+          role="menu"
+          aria-label="탭 메뉴"
+          style={{ left: Math.min(window.innerWidth - 180, tabContextMenu.x), top: tabContextMenu.y }}
+          onClick={e => e.stopPropagation()}
+        >
+          {tabContextMenu.isGraph ? (
+            <>
+              <button role="menuitem" onClick={() => { setGraphOpen(false); setCenterView('documents'); setTabContextMenu(null); }}>그래프 탭 닫기</button>
+              <button role="menuitem" disabled={!documentTabs.length} onClick={() => { void documents.current?.closeAllTabs?.(); setTabContextMenu(null); }}>다른 문서 탭 모두 닫기</button>
+            </>
+          ) : (
+            <>
+              <button role="menuitem" onClick={() => { void documents.current?.closeTab(tabContextMenu.path); setTabContextMenu(null); }}>탭 닫기</button>
+              <button role="menuitem" disabled={documentTabs.length <= 1} onClick={() => { void documents.current?.closeOtherTabs?.(tabContextMenu.path); setTabContextMenu(null); }}>다른 탭 닫기</button>
+              <button role="menuitem" disabled={documentTabs.findIndex(t => t.path === tabContextMenu.path) === documentTabs.length - 1} onClick={() => { void documents.current?.closeTabsToRight?.(tabContextMenu.path); setTabContextMenu(null); }}>오른쪽 탭 닫기</button>
+              <button role="menuitem" onClick={() => { void documents.current?.closeAllTabs?.(); setTabContextMenu(null); }}>모든 탭 닫기</button>
+              <div className="menu-divider" />
+              <button role="menuitem" onClick={() => { void window.navigator?.clipboard?.writeText(tabContextMenu.path); setStatus(`${tabContextMenu.path} 경로를 복사했습니다.`); setTabContextMenu(null); }}>문서 경로 복사</button>
+              <button role="menuitem" onClick={() => { toggleFavorite(tabContextMenu.path); setTabContextMenu(null); }}>{favorites.includes(tabContextMenu.path) ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기 추가'}</button>
+            </>
+          )}
+        </div>
+      )}
       {error && !creating && <div className="operation-status" data-phase="failed"><p role="alert"><strong>작업 실패</strong> — {error}</p><button onClick={() => setError('')}>오류 안내 닫기</button>{document && <details><summary>편집 보존·복구 작업</summary><p>저장·외부 변경 문제라면 현재 편집을 보존하고 원문 상태를 확인하세요.</p>{commandButton('document.preserve')}{commandButton('document.inspect')}{commandButton('recovery.open')}{commandButton('recovery.folder')}</details>}</div>}{warning && <div className="notice">{warning}</div>}
-      <div className="document-workspace" hidden={centerView !== 'documents' || !document}><Documents appearance={appearance.value} stylesheetVersion={stylesheetVersion} favorites={favorites} onToggleFavorite={toggleFavorite} onCommandsChanged={() => updateCommands(value => value + 1)} ref={documents} session={session} onSource={entry => { void read({ name: entry.relativePath, relativePath: entry.relativePath, kind: 'document' }, entry.line); }} onActive={value => { reading.current++; setDocument(value); setActiveAnalysis(undefined); }} onAnalysis={(_path, analysis) => setActiveAnalysis(analysis)} onTabsChanged={(tabs) => setDocumentTabs(tabs)} onError={setError} onStatus={setStatus} onBusy={value => { locked.current = value; setBusy(value); }} /></div>
+      <div className="document-workspace" hidden={centerView !== 'documents' || !document}><Documents inspectorTarget={inspectorTarget} appearance={appearance.value} stylesheetVersion={stylesheetVersion} favorites={favorites} onToggleFavorite={toggleFavorite} onCommandsChanged={() => updateCommands(value => value + 1)} ref={documents} session={session} onSource={entry => { void read({ name: entry.relativePath, relativePath: entry.relativePath, kind: 'document' }, entry.line); }} onActive={value => { reading.current++; setDocument(value); setActiveAnalysis(undefined); if (!value) setEditorStats(undefined); }} onStats={setEditorStats} onAnalysis={(_path, analysis) => setActiveAnalysis(analysis)} onTabsChanged={(tabs) => setDocumentTabs(tabs)} onError={setError} onStatus={setStatus} onBusy={value => { locked.current = value; setBusy(value); }} /></div>
       {session && graphOpen && <div className="graph-tab-workspace" hidden={centerView !== 'graph'}><Relations embedded key={`${session.workspaceId}-${session.workspaceEpoch}-graph`} session={session} initialPath={document?.relativePath} initialMode="graph" close={() => { setGraphOpen(false); setCenterView('documents'); }} open={(source, revision) => { setCenterView('documents'); void read({ name: source.relativePath, relativePath: source.relativePath, kind: 'document' }, source.line, revision); }} /></div>}
       {centerView === 'documents' && !document &&
       <div className="empty"><div className="mark">M</div><h1>{session ? '작업 공간을 열었습니다.' : '문서가 있는 곳에서 시작하세요.'}</h1>
@@ -427,11 +476,11 @@ function App() {
       </div>}</main>
     {rightVisible && !layout.narrow && <PanelResizer side="right" value={layout.value.right.width} min={220} max={420} resize={layout.resizeRight} />}
     <aside className="right-sidebar" aria-label="오른쪽 사이드바" inert={!rightVisible}><div className="sidebar-tabs" role="tablist" aria-label="오른쪽 패널"><button role="tab" aria-selected={layout.value.right.active === 'outline'} onClick={() => layout.update({ ...layout.value, right: { ...layout.value.right, active: 'outline', open: true } })}>목차</button><button role="tab" aria-selected={layout.value.right.active === 'relations'} onClick={() => layout.update({ ...layout.value, right: { ...layout.value.right, active: 'relations', open: true } })}>관계</button><button role="tab" aria-selected={layout.value.right.active === 'diagnostics'} onClick={() => layout.update({ ...layout.value, right: { ...layout.value.right, active: 'diagnostics', open: true } })}>진단</button></div><div className="sidebar-panel inspector-panel">
-      {layout.value.right.active === 'outline' && <section aria-label="문서 목차"><h2>목차</h2>{activeAnalysis?.outline.length ? activeAnalysis.outline.map(item => <button className="inspector-item" style={{ paddingLeft: `${8 + (item.level - 1) * 12}px` }} key={`${item.id}-${item.line}`} onClick={() => document && void read({ name: document.relativePath, relativePath: item.relativePath, kind: 'document' }, item.line)}>{item.title}</button>) : <p>활성 문서의 목차가 없습니다.</p>}</section>}
+      <div ref={setInspectorTarget} hidden={layout.value.right.active !== 'outline'} aria-label="문서 목차" />
       {layout.value.right.active === 'relations' && <section aria-label="문서 관계"><h2>관계</h2>{activeAnalysis?.relations.length ? activeAnalysis.relations.map((item, index) => <button className="inspector-item" key={index} onClick={() => void read({ name: item.destination?.relativePath ?? item.relativePath, relativePath: item.destination?.relativePath ?? item.relativePath, kind: 'document' }, item.destination?.line ?? item.line)}>{item.kind === 'xref' ? '참조' : '포함'} · {item.target}</button>) : <p>활성 문서에서 해석된 관계가 없습니다.</p>}</section>}
       {layout.value.right.active === 'diagnostics' && <section aria-label="문서 진단"><h2>진단</h2>{activeAnalysis?.diagnostics.length ? activeAnalysis.diagnostics.map((item, index) => <button className="inspector-item" key={index} onClick={() => void read({ name: item.relativePath, relativePath: item.relativePath, kind: 'document' }, item.line)}>{item.line} · {item.message}</button>) : <p>활성 문서의 진단이 없습니다.</p>}</section>}
     </div></aside>
-    {settingsOpen && <ViewSettings value={layout.value} update={layout.update} appearance={appearance.value} updateAppearance={appearance.update} workspace={!!session} stylesheet={stylesheet} selectStylesheet={selectStylesheet} reloadStylesheet={reloadStylesheet} clearStylesheet={clearStylesheet} warning={[layout.warning, appearance.warning].filter(Boolean).join(' ')} close={() => setSettingsOpen(false)} />}<footer role="status">{error ? '작업 실패 · 오류 안내와 해결 행동을 확인하세요.' : busy ? '작업 진행 중 · 완료될 때까지 기다려 주세요.' : status}</footer>{paletteOpen && <CommandPalette commands={commands} close={() => setPaletteOpen(false)} execute={id => { void dispatch(id); }} />}
+    {settingsOpen && <ViewSettings value={layout.value} update={layout.update} appearance={appearance.value} updateAppearance={appearance.update} workspace={!!session} stylesheet={stylesheet} selectStylesheet={selectStylesheet} reloadStylesheet={reloadStylesheet} clearStylesheet={clearStylesheet} warning={[layout.warning, appearance.warning].filter(Boolean).join(' ')} close={() => setSettingsOpen(false)} />}<footer role="status"><span className="footer-status-text">{error ? '작업 실패 · 오류 안내와 해결 행동을 확인하세요.' : busy ? '작업 진행 중 · 완료될 때까지 기다려 주세요.' : status}</span>{document && <span className="footer-document-stats">{editorStats && <span className="footer-stat-badge">{editorStats.words.toLocaleString()} 단어 · {editorStats.chars.toLocaleString()} 자</span>}{editorStats && <span className="footer-stat-badge">줄 {editorStats.line}, 열 {editorStats.col}</span>}<span className="footer-stat-badge">UTF-8{document.bom ? ' BOM' : ''}</span><span className="footer-stat-badge">{document.eol.toUpperCase()}</span><span className="footer-stat-badge">{document.readOnly ? '읽기 전용' : '편집 가능'}</span></span>}</footer>{paletteOpen && <CommandPalette commands={commands} close={() => setPaletteOpen(false)} execute={id => { void dispatch(id); }} />}
     {helpOpen && <GettingStarted workspace={session?.name} documentPath={document?.relativePath} readOnly={session?.readOnly} close={() => setHelpOpen(false)} showHints={() => { setHintsHidden(false); setHelpOpen(false); setStatus('시작 화면 안내를 다시 표시합니다. 문서가 열려 있으면 탭을 닫은 빈 화면에서 확인하세요.'); }} />}
     {extensionsOpen && <ExtensionsPanel runtime={extensions} close={() => setExtensionsOpen(false)} />}
     {extensionView && <ExtensionView key={`${extensionView.owner}-${extensionView.id}`} runtime={extensions} {...extensionView} close={() => setExtensionView(undefined)} />}

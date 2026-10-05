@@ -45,7 +45,7 @@ try {
   checks.push('scope change invalidates previous bundle and explicit rebuild restores it');
   await result.getByRole('button', { name: '출처: shared.adoc:2', exact: true }).first().click(); await modal.waitFor({ state: 'hidden' });
   await page.getByRole('heading', { name: 'shared.adoc', exact: true }).waitFor();
-  await page.getByRole('tab', { name: 'a.adoc ●', exact: true }).click(); assert.ok((await editor.textContent()).includes('UNSAVED ONLY'));
+  await page.getByRole('tab', { name: '● a.adoc', exact: true }).click(); assert.ok((await editor.textContent()).includes('UNSAVED ONLY'));
   checks.push('context evidence opens original include line and retains unsaved parent tab');
   await uiCommand(page, '문서 맥락 검토'); await build();
   await unlink(path.join(fixture, 'a.adoc'));

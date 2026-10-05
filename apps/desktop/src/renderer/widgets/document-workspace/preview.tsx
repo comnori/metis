@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DOMPurify from 'dompurify';
 import { OperationStatus } from '../../shared/ui/operation-status';
@@ -21,7 +22,7 @@ export function safePreview(html: string, appearance: WorkspaceAppearanceV1 = de
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'"><style data-theme="asciidoctor">${asciidoctorPreviewCss}</style><style data-theme="highlight">${highlightPreviewCss}</style><style data-theme="metis">${metisCss}</style></head><body>${fragment.body.innerHTML}</body></html>`;
 }
 export interface PreviewPosition { text?: string; html?: string; x: number; y: number; outline: number }
-export function Preview({ session, relativePath, text, mode, navigate, onAnalysis, position, editorLine, reveal, appearance, stylesheetVersion, inspector = true }: { session: Session; relativePath: string; text: string; mode: 'source' | 'split' | 'preview'; navigate(entry: OutlineEntry): void; onAnalysis(value: Analysis): void; position: PreviewPosition; editorLine(): number; reveal(): void; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; inspector?: boolean }) {
+export function Preview({ session, relativePath, text, mode, navigate, onAnalysis, position, editorLine, reveal, appearance, stylesheetVersion, inspector = true, inspectorTarget }: { session: Session; relativePath: string; text: string; mode: 'source' | 'split' | 'preview'; navigate(entry: OutlineEntry): void; onAnalysis(value: Analysis): void; position: PreviewPosition; editorLine(): number; reveal(): void; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; inspector?: boolean; inspectorTarget?: HTMLElement | null }) {
   const [analysis, setAnalysis] = useState<Analysis>();
   const [basis, setBasis] = useState<string>();
   const current = !!analysis && basis === text;
@@ -116,8 +117,7 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
     if (pendingId.current && mode !== 'source' && current && !running) { const id = pendingId.current; pendingId.current = undefined; scrollToId(id); }
   };
   useEffect(() => { const custom = frame.current?.contentDocument?.querySelector<HTMLStyleElement>('style[data-metis-custom]'); if (custom) custom.textContent = customCss; }, [customCss]);
-  return <div className={`analysis analysis-${mode}`}>
-    {inspector && <aside className="outline" ref={outline} onScroll={e => { position.outline = e.currentTarget.scrollTop; }}><h2>목차</h2><OperationStatus task="문서 해석" phase={running ? 'running' : current ? 'complete' : 'failed'} message={status} next={!running && !current ? '원문을 확인하고 미리보기 새로 고침을 누르세요. 원문 편집은 계속할 수 있습니다.' : undefined} /><button disabled={!current || running} onClick={alignEditor}>편집 위치와 맞추기</button><p>절 시작 위치로 맞춥니다. 본문 내부의 세부 위치는 동기화하지 않습니다. 원문이 바뀌면 이전 미리보기 위치를 초기화합니다.</p><button onClick={() => setRetry(value => value + 1)}>미리보기 새로 고침</button>
+  const inspectorContent = <aside className="outline" ref={outline} onScroll={e => { position.outline = e.currentTarget.scrollTop; }}><h2>목차</h2><OperationStatus task="문서 해석" phase={running ? 'running' : current ? 'complete' : 'failed'} message={status} next={!running && !current ? '원문을 확인하고 미리보기 새로 고침을 누르세요. 원문 편집은 계속할 수 있습니다.' : undefined} /><button disabled={!current || running} onClick={alignEditor}>편집 위치와 맞추기</button><p>절 시작 위치로 맞춥니다. 본문 내부의 세부 위치는 동기화하지 않습니다. 원문이 바뀌면 이전 미리보기 위치를 초기화합니다.</p><button onClick={() => setRetry(value => value + 1)}>미리보기 새로 고침</button>
       {analysis?.outline.map((entry, index) => <div key={`${entry.id}-${index}`}><button className="outline-item" style={{ paddingLeft: 8 + Math.min(entry.level, 6) * 8 }} disabled={!current || running} onClick={() => jump(entry)}>{outlineLabels[index]}<small>{entry.relativePath}:{entry.line}</small></button>{entry.relativePath === relativePath && <button disabled={!current || running} onClick={() => navigate(entry)}>원문 위치 열기: {entry.line}</button>}{entry.relativePath !== relativePath && <button disabled={!current || running} onClick={() => navigate(entry)}>포함 원문 열기: {entry.relativePath}</button>}</div>)}
       {analysis?.outline.length === 0 && <p>절이 없습니다.</p>}
       {analysis && <section aria-label="관계 탐색"><h3>참조 · 포함</h3>
@@ -135,7 +135,9 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
       </details>}
       {!!displayAnalysis?.diagnostics.length && <section aria-label="해석 진단"><h3>진단</h3>{displayAnalysis.diagnostics.map((d, index) => <p key={index}>{d.relativePath}:{d.line} — {d.message}</p>)}</section>}
       <p>이미지·외부 링크는 이 미리보기에서 차단됩니다.</p>
-    </aside>}
+    </aside>;
+  return <div className={`analysis analysis-${mode}`}>
+    {inspectorTarget ? createPortal(inspectorContent, inspectorTarget) : inspector && inspectorContent}
     <div className="preview-surface" hidden={mode === 'source'}><p role="status">{running || !current ? '미리보기 갱신 대기 · 이전 내용일 수 있습니다.' : '현재 편집 기준 · 포함·참조 파일은 해석 시점 저장본'}</p><iframe ref={frame} onLoad={loaded} title="AsciiDoc 미리보기" sandbox="allow-same-origin" srcDoc={srcDoc} /></div>
   </div>;
 }

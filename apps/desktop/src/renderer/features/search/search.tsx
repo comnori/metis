@@ -41,7 +41,7 @@ export function Search({ session, initialMode, memory, close, open, embedded = f
     <p>저장된 .adoc 기준 · 미저장 편집 제외 · 외부 변경은 다시 검색하면 반영됩니다.</p>
     <div className="search-controls"><label>검색 모드<select value={mode} onChange={event => setMode(event.target.value as SearchRequest['mode'])}><option value="text">본문</option><option value="files">파일 · 빠른 열기</option><option value="symbols">심볼 · 절</option></select></label>
       <label><input type="checkbox" checked={caseSensitive} onChange={event => setCase(event.target.checked)} />대소문자 구분</label></div>
-    <label>검색어<input autoFocus={!embedded} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); container.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
+    <label>검색어<input autoFocus type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); container.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
     <div className="tools"><button onClick={() => setRetry(value => value + 1)}>다시 검색</button>{running && <button onClick={cancel}>검색 취소</button>}</div>
     <div className="search-controls"><label>결과 경로 필터<input value={pathFilter} maxLength={200} onChange={event => setPathFilter(event.target.value)} /></label><label>결과 종류<select value={kindFilter} onChange={event => setKindFilter(event.target.value)}><option value="">전체</option>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><button onClick={() => { setPathFilter(''); setKindFilter(''); }}>필터 초기화</button></div>
     <p>Escape로 검색어를 지우지 않고 창을 닫습니다. 글자 조합 중에는 창을 유지합니다. 필터는 받은 결과 안에서 적용됩니다. 검색어에서 아래 방향키로 결과 이동, 위·아래/Home/End로 선택, Enter로 열 수 있습니다.</p>
@@ -61,6 +61,6 @@ export function Search({ session, initialMode, memory, close, open, embedded = f
         <strong>{kinds[hit.kind]} · {hit.label}</strong><small>{hit.relativePath}:{hit.line}</small><span>{hit.context}</span></button>)}</div></>}
   </>;
   return embedded
-    ? <section className="search-panel" ref={node => { container.current = node; }} aria-labelledby="search-title">{content}</section>
+    ? <section {...escape} className="search-panel" ref={node => { container.current = node; }} aria-labelledby="search-title">{content}</section>
     : <dialog {...escape} className="search-dialog" ref={node => { container.current = node; }} aria-labelledby="search-title" onCancel={event => { event.preventDefault(); close(); }}>{content}</dialog>;
 }

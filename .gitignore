@@ -8,5 +8,4 @@
 /apps/desktop/dist/
 /.pre04-runs/
 /docs/*
-!/docs/renderer-architecture.md
 /tsconfig.tsbuildinfo

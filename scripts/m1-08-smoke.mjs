@@ -25,7 +25,7 @@ try {
   const create = page.getByRole('dialog', { name: '새 문서', exact: true }); await create.waitFor();
   for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]')), true); }
   await page.keyboard.press('Escape'); await create.waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => document.activeElement?.textContent), '새 문서');
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '새 문서');
   checks.push('create dialog traps focus and Escape restores invoker');
   await page.getByRole('button', { name: '검색', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '검색어' }); await query.fill('needle');
@@ -33,7 +33,7 @@ try {
   assert.equal(await page.locator('.search-result').nth(1).evaluate(node => node === document.activeElement), true);
   await page.keyboard.press('Home'); await page.keyboard.press('ArrowUp'); assert.equal(await query.evaluate(node => node === document.activeElement), true);
   await page.keyboard.press('ArrowDown'); await page.keyboard.press('Escape');
-  await page.locator('dialog.search-dialog').waitFor({ state: 'detached' }); checks.push('search keyboard navigation returns from first result to query');
+  await page.locator('.search-panel').waitFor({ state: 'detached' }); checks.push('search keyboard navigation returns from first result to query');
   const cancelled = await page.evaluate(async () => {
     const api = window.metis, opened = await api.openWorkspace({ requestId: 'open-test' }); if (!opened.ok) throw Error(opened.error.message);
     const scope = { requestId: 'review-test', workspaceId: opened.value.workspaceId, workspaceEpoch: opened.value.workspaceEpoch };
@@ -48,6 +48,7 @@ try {
   for (let i = 0; i < 205; i++) await writeFile(path.join(fixture, `fixture-${i}.adoc`), '= Fixture\n\nneedle');
   await writeFile(path.join(fixture, 'large.adoc'), ('가'.repeat(100) + '\n').repeat(4000));
   await uiCommand(page, '폴더 열기');
+  await page.getByRole('button', { name: '파일', exact: true }).click();
   await page.getByRole('button', { name: 'a.adoc 파일 변경', exact: true }).click();
   const reviewDialog = page.getByRole('dialog', { name: '파일 변경 검토' });
   await reviewDialog.getByLabel('새 상대 경로').fill('renamed.adoc');

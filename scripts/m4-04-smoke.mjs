@@ -14,7 +14,8 @@ const app = await electron.launch({ executablePath: packaged || executablePath, 
 try {
   page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).click(); await page.getByRole('button', { name: '≡long.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡long.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   const frame = page.locator('iframe[title="AsciiDoc 미리보기"]');
   const ready = () => page.getByRole('button', { name: '편집 위치와 맞추기', exact: true }).waitFor({ state: 'visible' });
   await ready(); await page.locator('.outline-item').filter({ hasText: /^Section 20/ }).click();

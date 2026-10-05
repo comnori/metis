@@ -16,11 +16,12 @@ async function hasLink(target) {
 // Call only after the test application has closed. Preserve state and evidence.
 export async function cleanupTestCache(root, profile) {
   const runs = path.join(await realpath(root), '.pre04-runs');
-  const target = path.resolve(profile);
-  const relative = path.relative(runs, target).split(path.sep);
+  // Root aliases (/var on macOS, Windows short paths) are valid; links inside runs are not.
+  const relative = path.relative(path.resolve(root, '.pre04-runs'), path.resolve(profile)).split(path.sep);
   if (relative.length !== 2 || relative[1] !== 'profile' || relative[0].startsWith('package-') || !/^[a-z0-9-]+-\d+$/.test(relative[0])) {
     throw new Error('Refusing profile outside a test run');
   }
+  const target = path.join(runs, ...relative);
   if (await realpath(target) !== target) throw new Error('Refusing linked test profile');
   for (const name of cacheNames) {
     const cache = path.join(target, name);

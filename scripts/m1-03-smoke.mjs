@@ -20,6 +20,7 @@ try {
   await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
   await page.locator('.outline-item').filter({ hasText: 'Included section' }).waitFor(); checks.push('parser outline with include source');
   assert.ok(await page.locator('.cm-content .cm-line span').count()); checks.push('syntax highlighting');
   await page.getByRole('button', { name: '분할', exact: true }).click();

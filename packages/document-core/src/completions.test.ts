@@ -18,3 +18,30 @@ test.each([
   expect(result.options.find(option => option.label === label)?.apply).toBe(apply);
   expect(result.from).toBe(before.length - (before.match(/\{([\w-]*)$/)?.[1].length ?? before.match(/(?:include::|xref:|<<)(.*)$/)?.[1].length ?? 0));
 });
+
+test('slash command completions trigger on / and provide AsciiDoc templates', () => {
+  const contextSlash = new CompletionContext(EditorState.create({ doc: '/' }), 1, true);
+  const resultSlash = complete(contextSlash, 'docs/main.adoc');
+  expect(resultSlash).not.toBeNull();
+  expect(resultSlash!.from).toBe(0);
+  expect(resultSlash!.options.some(o => o.label === '/note')).toBe(true);
+  expect(resultSlash!.options.some(o => o.label === '/table')).toBe(true);
+  expect(resultSlash!.options.some(o => o.label === '/todo')).toBe(true);
+
+  const contextNote = new CompletionContext(EditorState.create({ doc: '/not' }), 4, true);
+  const resultNote = complete(contextNote, 'docs/main.adoc')!;
+  const noteOpt = resultNote.options.find(o => o.label === '/note');
+  expect(noteOpt?.apply).toBe('[NOTE]\n====\n\n====\n');
+  expect(resultNote.from).toBe(0);
+
+  const contextIndent = new CompletionContext(EditorState.create({ doc: '   /tip' }), 7, true);
+  const resultIndent = complete(contextIndent, 'docs/main.adoc')!;
+  expect(resultIndent.from).toBe(3);
+
+  // Comments like // and URLs like http://... should NOT trigger slash commands
+  const contextComment = new CompletionContext(EditorState.create({ doc: '//' }), 2, true);
+  expect(complete(contextComment, 'docs/main.adoc')).toBeNull();
+
+  const contextUrl = new CompletionContext(EditorState.create({ doc: 'https://example.com/' }), 20, true);
+  expect(complete(contextUrl, 'docs/main.adoc')).toBeNull();
+});

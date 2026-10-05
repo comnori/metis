@@ -36,7 +36,7 @@ try {
     await page.getByRole('heading', { name, exact: true }).waitFor();
     await editor.focus(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText(`\nDRAFT-${name}`); await ready();
   }
-  assert.deepEqual(await page.getByRole('tab').allTextContents(), [...originals.keys()].map(name => name + ' ●'));
+  assert.deepEqual(await page.getByRole('tablist', { name: '열린 뷰', exact: true }).getByRole('tab').allTextContents(), [...originals.keys()].map(name => '● ' + name));
   await page.getByRole('button', { name: '분할', exact: true }).click();
   const cdp = await page.context().newCDPSession(page); await cdp.send('Performance.enable');
   async function sample(cycle) {
@@ -51,12 +51,12 @@ try {
   const names = [...originals.keys()], measuredStart = Date.now();
   for (let cycle = 1; cycle <= cycles; cycle++) {
     const name = names[(cycle - 1) % names.length], other = names[cycle % names.length];
-    await page.getByRole('tab', { name: `${name} ●`, exact: true }).click(); await ready();
+    await page.getByRole('tab', { name: `● ${name}`, exact: true }).click(); await ready();
     await editor.focus(); await page.keyboard.press('ControlOrMeta+End');
     assert.ok((await editor.textContent()).includes(`DRAFT-${name}`));
     await page.keyboard.press('Shift+ArrowLeft');
-    await page.getByRole('tab', { name: `${other} ●`, exact: true }).click(); await ready();
-    await page.getByRole('tab', { name: `${name} ●`, exact: true }).click(); await ready();
+    await page.getByRole('tab', { name: `● ${other}`, exact: true }).click(); await ready();
+    await page.getByRole('tab', { name: `● ${name}`, exact: true }).click(); await ready();
     await editor.focus(); await page.keyboard.insertText('X');
     assert.ok((await editor.textContent()).includes(`DRAFT-${name.slice(0, -1)}X`), 'selection survives tab round trip');
     await page.keyboard.press('ControlOrMeta+z'); await ready();
@@ -73,7 +73,7 @@ try {
   // Fill beyond the cap, then inspect public command availability while draining it.
   for (let i = 0; i < 105; i++) {
     const name = names[i % names.length];
-    await page.getByRole('tab', { name: name + ' ●', exact: true }).click();
+    await page.getByRole('tab', { name: '● ' + name, exact: true }).click();
     await page.getByRole('heading', { name, exact: true }).waitFor();
   }
   let historySteps = 0;

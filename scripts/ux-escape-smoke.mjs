@@ -12,13 +12,13 @@ const app = await electron.launch({ executablePath: packaged || executablePath, 
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.focus(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
   for (const scenario of ['search-filled', 'search-empty', 'search-result', 'quick-open-filled', 'settings-filled']) {
     for (let attempt = 1; attempt <= 3; attempt++) {
       const settings = scenario === 'settings-filled', quick = scenario === 'quick-open-filled';
       await uiCommand(page, settings ? '보기 설정' : quick ? '빠른 열기' : '검색');
-      const dialog = page.getByRole('dialog', { name: settings ? '보기 설정' : quick ? '빠른 열기' : '작업 공간 검색', exact: true });
+      const dialog = page.getByRole(settings || quick ? 'dialog' : 'region', { name: settings ? '보기 설정' : quick ? '빠른 열기' : '작업 공간 검색', exact: true });
       const query = dialog.getByRole('searchbox'); await query.fill(settings ? '파일' : quick ? 'note' : scenario === 'search-empty' ? '' : 'needle');
       await query.evaluate(e => e.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true })));
       await page.keyboard.press('Escape'); assert.equal(await dialog.isVisible(), true);
@@ -35,7 +35,7 @@ try {
       observations.push({ scenario, attempt, dialogOpenAfterEscape: open, queryAfterEscape: open ? await query.inputValue() : null });
       if (open) await dialog.getByRole('button', { name: settings ? '닫기' : '검색 닫기', exact: true }).click();
       await dialog.waitFor({ state: 'detached' });
-      await page.waitForFunction(() => document.activeElement?.hasAttribute('data-focus-home'));
+      await page.waitForFunction(() => document.activeElement?.hasAttribute('data-focus-home') || document.activeElement?.getAttribute('aria-label') === '검색');
       await uiCommand(page, settings ? '보기 설정' : quick ? '빠른 열기' : '검색');
       await query.waitFor();
       assert.equal(await query.inputValue(), settings ? '' : quick ? 'note' : scenario === 'search-empty' ? '' : 'needle');

@@ -32,7 +32,7 @@ const app = await electron.launch({ executablePath, args: [path.join(root, 'apps
 try {
   const page = await app.firstWindow(); page.setDefaultTimeout(20000);
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); }, fixture);
-  await page.getByRole('button', { name: '폴더 열기', exact: true }).click();
+  await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡preview.adoc', exact: true }).click();
   await page.getByRole('button', { name: '미리보기', exact: true }).click();
   const preview = page.frameLocator('iframe[title="AsciiDoc 미리보기"]');
