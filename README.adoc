@@ -1,9 +1,22 @@
-= Metis
+= Metis — An open-source Obsidian alternative built on AsciiDoc
 :experimental:
 
 English | link:doc/README.ko.adoc[한국어]
 
-Metis aims to be a local-first knowledge tool that uses standard AsciiDoc documents as the source of truth. Built around file ownership and tool independence, it helps users structure, compose, reuse, and explore connected knowledge.
+Looking for an open-source Obsidian alternative built around AsciiDoc?
+
+Metis is a local-first desktop note-taking app and personal knowledge base with an AsciiDoc editor. It keeps standard `.adoc` files on your device as the source of truth, so your notes and documentation remain plain text, portable, versionable with Git, and usable with other AsciiDoc tools.
+
+Metis is designed for offline-friendly note-taking and structured documentation, with your files remaining under your control.
+
+== Why Metis?
+
+* **Local-first and file-based:** Work directly with AsciiDoc files stored in folders you control.
+* **Open source and tool-independent:** Your documents remain usable outside Metis with Git, text editors, and existing AsciiDoc tools.
+* **Structured knowledge:** Use standard AsciiDoc features such as sections, attributes, `xref`, and `include` to structure, compose, and reuse documents.
+* **Built for long-lived documents:** Keep notes and documentation readable, reusable, and portable even if your tools change.
+
+Metis is inspired by the local-file workflow that Obsidian users value, while using standard AsciiDoc for richer document structure, composition, and reuse.
 
 == Development philosophy
 
