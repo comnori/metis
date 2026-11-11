@@ -19,7 +19,7 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡c.adoc', exact: true }).click();
   await uiCommand(page, '관계 탐색');
-  const modal = page.getByRole('dialog', { name: '작업 공간 관계' });
+  const modal = page.getByRole('tabpanel', { name: '그래프·관계' });
   await modal.getByRole('region', { name: '백링크' }).getByRole('button', { name: '출처: a.adoc:3' }).waitFor();
   const parents = modal.getByRole('region', { name: '포함 변경 영향' });
   await parents.getByText('a.adoc', { exact: true }).waitFor(); await parents.getByText('b.adoc', { exact: true }).waitFor();

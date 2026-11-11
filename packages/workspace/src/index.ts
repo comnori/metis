@@ -1,3 +1,5 @@
+export { Attachments, attachmentCanOpen } from './attachments';
+export { readD2File } from './d2';
 import { promises as fs, constants } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -135,7 +137,7 @@ export class Workspace {
   async list(request: PathRequest): Promise<Entry[]> {
     const entries = await fs.readdir(await this.resolve(request), { withFileTypes: true });
     this.session(request);
-    return entries.filter(e => !e.isSymbolicLink() && (e.isDirectory() || (e.isFile() && /\.adoc$/i.test(e.name))))
+    return entries.filter(e => !['.metis', '.notion-backup'].includes(e.name) && !e.isSymbolicLink() && (e.isDirectory() || (e.isFile() && /\.adoc$/i.test(e.name))))
       .map(e => ({ name: e.name, relativePath: [request.relativePath, e.name].filter(Boolean).join('/'), kind: e.isDirectory() ? 'directory' as const : 'document' as const }))
       .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
   }

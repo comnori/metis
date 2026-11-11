@@ -29,22 +29,22 @@ try {
   async function command(label) { await page.keyboard.press('ControlOrMeta+Shift+P'); await palette.getByRole('combobox').fill(label); await palette.getByRole('combobox').press('Enter'); }
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
-  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
+  await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   await uiCommand(page, '확장 관리');
-  const manager = page.getByRole('dialog', { name: '확장 관리' });
-  await manager.getByRole('button', { name: '활성화', exact: true }).click(); await manager.getByRole('button', { name: '닫기', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: '설정' });
+  await manager.locator('article').filter({ has: page.getByRole('heading', { name: '문서 개요', exact: true }) }).getByRole('button', { name: '활성화', exact: true }).click(); await manager.getByRole('button', { name: '닫기', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
   await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\n\n== Unsaved work');
   await page.locator('.outline-item').filter({ hasText: 'Unsaved work' }).waitFor();
   await command('관계 탐색');
-  const relations = page.getByRole('dialog', { name: '작업 공간 관계' });
+  const relations = page.getByRole('tabpanel', { name: '그래프·관계' });
   await relations.getByLabel('대상 문서').selectOption('shared.adoc');
   const backlinks = relations.getByRole('region', { name: '백링크' });
   await relations.getByRole('status').filter({ hasText: '관계 조사를 완료했습니다.' }).waitFor();
   await backlinks.getByText('확인된 관계가 없습니다.', { exact: true }).waitFor();
   await relations.getByRole('button', { name: '닫기', exact: true }).click();
   await command('Git 이력');
-  const history = page.getByRole('dialog', { name: 'Git 변경과 이력' });
+  const history = page.getByRole('tabpanel', { name: 'Git 변경·이력' });
   await history.getByRole('button', { name: '문서 이력 조회', exact: true }).click();
   await history.getByRole('button', { name: /Linked original/ }).click(); await history.getByRole('checkbox').check();
   await history.getByRole('button', { name: '편집 보존 후 복원 초안 적용', exact: true }).click(); await history.waitFor({ state: 'hidden' });

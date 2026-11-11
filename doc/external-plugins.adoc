@@ -1,0 +1,93 @@
+= 외부 확장 SDK 1
+
+확장 관리에서 작업 공간별 외부 플러그인을 설치하고 켜거나 끌 수 있습니다. 기존 문서 개요·Mermaid·YouTube 번들 확장의 동작은 유지합니다.
+
+[mermaid]
+----
+flowchart LR
+    Package[폴더 · ZIP · GitHub 릴리스] --> Install[Manifest 검증과 설치]
+    Install --> Runtime[Renderer ESM activate]
+    Runtime --> Panel[명령과 사용자 정의 패널]
+    Panel --> IPC[검증된 호스트 요청]
+    IPC --> Network[HTTPS · PAT · OAuth]
+    IPC --> Files[작업 공간 파일 · 복구]
+    IPC --> Secrets[OS 암호화 인증 저장소]
+----
+
+== 패키지와 수명주기
+
+패키지 루트에 `manifest.json`과 ESM `main.js`가 필요합니다. `styles.css` 및 정적 리소스는 선택 사항입니다. Manifest는 `id`, `name`, `version`, `description`, `author`, `minAppVersion`, `sdkVersion: 1`을 선언합니다. 버전은 세 자리 SemVer를 사용합니다.
+
+코드는 작업 공간의 `.metis/plugins/<id>`에, 활성 상태는 `.metis/plugins.json`에 저장됩니다. 새 패키지는 비활성 상태로 설치됩니다. 업데이트는 같은 ID를 대상으로 하며 실패하면 기존 디렉터리를 복원합니다. 릴리스 태그와 Manifest 버전이 일치해야 합니다. 설치 스크립트와 소스 빌드를 실행하지 않습니다.
+
+비활성화·제거·작업 공간 전환은 등록된 명령·화면·CSS와 진행 중 요청을 해제합니다. 문서·첨부·백업은 유지합니다. 플러그인은 신뢰한 코드를 설치하는 모델이며 같은 Renderer의 앱 UI에 접근할 수 있습니다. 플러그인 사이의 악성 코드 격리를 보장하는 샌드박스는 아닙니다. Renderer의 Node 접근 차단은 유지합니다.
+
+== 공개 API
+
+계약의 기준은 `packages/contracts/src/plugins.ts`입니다.
+
+[source,typescript]
+----
+export function activate(api: PluginApi) {
+  api.panel('main', '내 확장', (root, signal) => {
+    root.textContent = '확장 화면';
+    return () => root.replaceChildren();
+  });
+  api.command('open', '내 확장 열기', () => api.openPanel('main'));
+  return () => { /* 자체 리소스 정리 */ };
+}
+----
+
+`activate`와 명령·패널 등록은 동기식입니다. 실제 작업은 패널에서 비동기로 실행합니다. 패널 signal, 플러그인 수명주기 signal, 요청의 signal이 취소되면 해당 작업을 중단해야 합니다.
+
+[cols="1,3",options="header"]
+|===
+|API / 요청 |내용
+|command, panel, openPanel, closePanel |명령과 DOM 패널 등록·열기·닫기
+|request('http') |공개 HTTPS GET/POST, 응답 상태·헤더·본문. authenticated 요청은 설정한 API origin에만 토큰 전달
+|request('download') |공개 HTTPS 파일을 지정한 상대 폴더에 스트리밍 저장, 내용 해시 기반 이름 반환
+|request('read') |UTF-8 텍스트·SHA-256 반환, 파일이 없으면 null
+|request('write') |path·text·선택적 expectedHash. 기준 해시가 없으면 신규 생성만 허용
+|auth.pat |provider: notion, token 입력. 고정된 Notion API에서 검증 후 보호 저장. 상태만 반환
+|auth.configure / start / status / disconnect |기존 직접 OAuth 설정·시작, 비밀정보 없는 상태(mode: pat 또는 oauth), 로컬 인증 삭제
+|openExternal |url의 HTTPS 링크를 검증한 후 시스템 브라우저에서 열기
+|settings.get / settings.set |작업 공간 내 비밀정보 없는 JSON 설정
+|isDirty / filesChanged |미저장 편집 확인과 저장 후 화면 갱신
+|===
+
+파일 요청은 작업 공간 경계·심볼릭 링크·경로 구성을 검증합니다. `.git`와 `.metis`는 플러그인의 일반 파일 요청 대상이 될 수 없습니다. 덮어쓰기는 기준 해시를 확인하며 기존 복구 저장 서비스를 사용합니다. 문서 저장 16 MiB, HTTP 응답 16 MiB, 첨부 1 GiB, ZIP 압축 해제 합계 64 MiB·256파일 제한을 적용합니다.
+
+HTTPS 요청은 사설·loopback 주소를 거부하고 DNS 조회 결과에 연결을 고정합니다. 비밀정보는 workspace 파일에 저장하지 않으며 OS 암호화가 불가능하면 세션 전용입니다.
+
+== PAT와 인증 딥링크
+
+[mermaid]
+----
+flowchart LR
+    PAT[PAT 입력] --> Verify[Main에서 users/me 검증]
+    Verify --> Store[OS 암호화 저장소]
+    OS[metis URL 호출] --> Router[Main AuthDeepLinks]
+    Router --> Check[state · 경로 · 수명주기 검사]
+    Check --> Pending[진행 중 인증 요청의 Promise]
+----
+
+`auth.pat`은 `{ provider: 'notion', token }`을 받으며 API origin은 `https://api.notion.com`으로 고정됩니다. 실패한 새 토큰은 기존 연결을 교체하지 않습니다. Notion의 `bot.workspace_id`를 사용하므로 토큰 갱신 후에도 기존 가져오기 대상을 식별할 수 있습니다. 401 응답에는 PAT 재발급 안내를 반환하고 OAuth 갱신을 시도하지 않습니다.
+
+`AuthDeepLinks`는 Main 전용 서비스입니다. `begin(owner, provider, signal)`은 `state`, `redirectUri`, `code: Promise<string>`, `cancel()`을 반환합니다. state는 32바이트 무작위 값이며 기본 만료는 3분입니다. owner에는 작업 공간과 확장 ID를 함께 사용하고 signal에는 해당 요청의 취소 신호를 전달합니다.
+
+콜백은 `metis://auth/<provider>/callback?state=<state>&code=<one-time-code>` 또는 `error=access_denied` 형식입니다. `state`, `code`, `error` 외 파라미터, 중복 키, 토큰, fragment, 다른 경로·state, 재사용 응답은 받지 않습니다. callback 원문은 로그와 Renderer에 전달하지 않습니다. 대기 상태는 디스크에 저장하지 않으며 앱 재시작 시 이전 인증은 무효입니다.
+
+Main은 최초 실행 인자와 `second-instance` 및 `open-url`을 라우팅합니다. `metis:` 인자는 파일 열기 큐에 넣지 않습니다. OS 프로토콜 등록은 일반 실행에서 수행하며 `--smoke`는 등록하지 않습니다. macOS 패키지에는 scheme 메타데이터를 포함하며 Linux 설치 패키지의 desktop MIME 등록은 별도입니다.
+
+기존 `auth.configure`의 loopback URI도 계속 지원합니다. metis 콜백을 사용하는 직접 OAuth는 Main의 같은 수신기를 사용합니다. 향후 Public connection 인증 서버 어댑터는 이 수신기를 이용하되 서버의 handoff 코드 교환·검증·토큰 갱신을 별도로 구현해야 합니다. 현재 패키지는 해당 서버나 실제 Public Connection 버튼 동작을 포함하지 않습니다.
+
+== 검증
+
+`npm test`에 패키지 검증·설치·업데이트·파일 충돌·PAT 검증·보호 저장·만료·OAuth state·토큰 갱신·딥링크 재사용 및 취소 테스트가 포함되어 있습니다. Notion 확장의 전체 GUI 검증은 다음 명령으로 실행합니다.
+
+[source,powershell]
+----
+node scripts/notion-plugin-smoke.mjs <notion-to-metis ZIP 경로>
+----
+
+테스트는 격리된 작업 공간과 모의 Notion API를 사용합니다. 실제 OAuth 공급자와 사용자 소유 앱 등록은 별도로 검증해야 합니다.

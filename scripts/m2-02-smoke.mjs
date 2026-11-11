@@ -17,8 +17,8 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   await uiCommand(page, '관계 탐색');
-  const modal = page.getByRole('dialog', { name: '작업 공간 관계' }), related = modal.getByRole('region', { name: '관련 문서', exact: true });
-  await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
+  const modal = page.getByRole('tabpanel', { name: '그래프·관계' }), related = modal.getByRole('region', { name: '관련 문서', exact: true });
+  await related.getByRole('button', { name: '관련 목록', exact: true }).click(); await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
   const detail = related.getByRole('region', { name: '관련 근거' });
   await detail.getByText('공통 참조 대상: shared.adoc', { exact: true }).waitFor();
   await detail.getByRole('button', { name: '근거 원문: a.adoc:3', exact: true }).waitFor();
@@ -47,11 +47,11 @@ try {
   await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUnsaved');
   await uiCommand(page, '관계 탐색'); await modal.getByLabel('대상 문서').selectOption('a.adoc');
-  await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
+  await related.getByRole('button', { name: '관련 목록', exact: true }).click(); await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
   await detail.getByRole('button', { name: '근거 원문: b.adoc:3', exact: true }).click();
   assert.ok((await editor.textContent()).includes('Unsaved')); checks.push('evidence navigation opens source and preserves dirty buffer');
   await uiCommand(page, '관계 탐색'); await modal.getByLabel('대상 문서').selectOption('a.adoc');
-  await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
+  await related.getByRole('button', { name: '관련 목록', exact: true }).click(); await related.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
   await related.getByRole('button', { name: '관계 그래프', exact: true }).click();
   await writeFile(path.join(fixture, 'b.adoc'), '= B\n\nNo reference');
   await page.waitForFunction(() => { const region = document.querySelector('section[aria-label="관련 문서"]'); return region?.querySelector('[aria-label="그래프 문서: shared.adoc"]') && !region.querySelector('[aria-label="그래프 문서: b.adoc"]') && !region.querySelector('[aria-label="관련 근거"]'); }, undefined, { timeout: 15000 });

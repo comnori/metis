@@ -25,10 +25,11 @@ try {
   assert.deepEqual(prompt.buttons, ['Git 초기화', '건너뛰기']); assert.equal(prompt.defaultId, 1); assert.equal(prompt.cancelId, 1);
   await writeFile(path.join(workspace, 'note.adoc'), '= Styled\n\nBody'); await page.getByRole('button', { name: '새로 고침', exact: true }).click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
-  await page.getByRole('button', { name: '설정', exact: true }).click(); const settings = page.getByRole('dialog', { name: '보기 설정' });
+  await page.getByRole('button', { name: '설정', exact: true }).click(); const settings = page.getByRole('dialog', { name: '설정' });
+  await settings.getByRole('button', { name: '글꼴과 편집기', exact: true }).click();
   await settings.getByLabel(/UI 크기/).fill('18');
-  await settings.getByLabel('AsciiDoc font-family').fill('"Courier New", monospace'); await settings.getByLabel('AsciiDoc font-family').blur();
-  await settings.getByLabel(/AsciiDoc 크기/).fill('19'); await settings.getByRole('combobox', { name: '내장 테마', exact: true }).selectOption('dark');
+  await settings.getByText('고급: 글꼴 이름 직접 입력', { exact: true }).click(); await settings.getByLabel('AsciiDoc font-family').fill('"Courier New", monospace'); await settings.getByLabel('AsciiDoc font-family').blur();
+  await settings.getByLabel(/AsciiDoc 크기/).fill('19'); await settings.getByRole('button', { name: '미리보기', exact: true }).click(); await settings.getByRole('combobox', { name: '내장 테마', exact: true }).selectOption('dark');
   await settings.getByRole('button', { name: 'CSS 파일 선택', exact: true }).click();
   await settings.getByText('연결된 CSS: custom.css', { exact: false }).waitFor(); await settings.getByRole('button', { name: '닫기', exact: true }).click();
   assert.equal(await page.locator('.app').evaluate(element => getComputedStyle(element).getPropertyValue('--ui-font-scale').trim()), '1.125');

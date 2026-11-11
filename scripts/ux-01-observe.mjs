@@ -18,7 +18,7 @@ try {
     for (let attempt = 1; attempt <= 3; attempt++) {
       const settings = scenario === 'settings-filled', quick = scenario === 'quick-open-filled';
       await uiCommand(page, settings ? '보기 설정' : quick ? '빠른 열기' : '검색');
-      const dialog = page.getByRole('dialog', { name: settings ? '보기 설정' : quick ? '빠른 열기' : '작업 공간 검색', exact: true });
+      const dialog = page.getByRole(settings || quick ? 'dialog' : 'region', { name: settings ? '설정' : quick ? '빠른 열기' : '작업 공간 검색', exact: true });
       const query = dialog.getByRole('searchbox'); await query.fill(settings ? '파일' : quick ? 'note' : scenario === 'search-empty' ? '' : 'needle');
       if (scenario === 'search-result') { await dialog.locator('.search-result').first().waitFor(); await dialog.locator('.search-result').first().focus(); } else await query.focus();
       await page.keyboard.press('Escape');

@@ -51,7 +51,7 @@ try {
   await assert.rejects(stat(path.join(fixture, 'docs/final.adoc')), { code: 'ENOENT' });
   await modal.getByRole('button', { name: '닫기', exact: true }).click();
   assert.equal(await page.getByRole('tab', { name: 'docs/final.adoc', exact: true }).count(), 0);
-  await uiCommand(page, '복구 사본'); await page.getByRole('dialog', { name: '복구 사본', exact: true }).getByText('docs/final.adoc', { exact: true }).waitFor();
+  await uiCommand(page, '복구 사본'); await page.getByRole('tabpanel', { name: '복구 사본', exact: true }).getByText('docs/final.adoc', { exact: true }).waitFor();
   checks.push('delete removes clean tab and leaves recovery entry');
   await page.screenshot({ path: path.join(run, 'result.png') });
   await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));

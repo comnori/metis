@@ -1,3 +1,11 @@
+import { validPluginRequest, type PluginRequest } from './plugins';
+import { validWebLink } from './web-links';
+import { validD2Export, type D2ExportRequest } from './d2';
+export type { D2ExportRequest, D2ExportFormat } from './d2';
+export { validWebLink } from './web-links';
+export * from './plugins';
+import { validAttachmentRequest, type AttachmentRequest, type AttachmentResult } from './attachments';
+export type { AttachmentRequest, AttachmentResult, AttachmentSource, AttachmentKind, AttachmentResource } from './attachments';
 import type { ProposalRequest, ProposalResult } from './proposal-ai';
 export type { ProposalRequest, ProposalResult } from './proposal-ai';
 export { parseProposal, selectProposal, type ProposedChange } from './proposals';
@@ -11,7 +19,13 @@ export const protocolVersion = 2;
 export { textDiff } from './diff';
 export { findCommands, executeCommand, type Command } from './commands';
 export { ExtensionRuntime, type ExtensionApi, type ExtensionDefinition, type ExtensionModel, type ExtensionViewData } from './extensions';
+export type { D2Board, PreviewAsset, ExtensionPreviewInput, ExtensionPreviewResult, ExtensionPreviewRenderer } from './preview-extensions';
 export const channels = {
+  exportD2: 'metis:export-d2',
+  readD2File: 'metis:read-d2-file',
+  openWebLink: 'metis:open-web-link',
+  plugins: 'metis:plugins',
+  attachments: 'metis:attachments',
   agentProgress: 'metis:agent-progress',
   generateProposal: 'metis:generate-proposal', cancelProposal: 'metis:cancel-proposal',
   queryAi: 'metis:query-ai', cancelAi: 'metis:cancel-ai',
@@ -85,11 +99,16 @@ export interface RelationIndex { edges: WorkspaceRelation[]; documents: string[]
 export interface AttributeDeclaration extends SourceLocation { name: string; value: string; applied: boolean }
 export interface AttributeUse extends SourceLocation { name: string; value?: string }
 export interface ConditionInfo extends SourceLocation { expression: string; state: 'active' | 'inactive' | 'unknown'; reason: string }
-export interface Analysis { title?: string; html: string; outline: OutlineEntry[]; diagnostics: Diagnostic[]; anchors: AnchorSymbol[]; targetAnchors: Array<AnchorSymbol & { documentPath: string }>; relations: Relation[]; attributes: AttributeDeclaration[]; attributeUses: AttributeUse[]; conditions: ConditionInfo[]; files: string[] }
+export interface Analysis { imagesDirectory?: string; title?: string; html: string; outline: OutlineEntry[]; diagnostics: Diagnostic[]; anchors: AnchorSymbol[]; targetAnchors: Array<AnchorSymbol & { documentPath: string }>; relations: Relation[]; attributes: AttributeDeclaration[]; attributeUses: AttributeUse[]; conditions: ConditionInfo[]; files: string[] }
 export interface Entry { name: string; relativePath: string; kind: 'directory' | 'document' }
 export interface DocumentSnapshot { relativePath: string; text: string; revision: string; byteLength: number; bom: boolean; eol: 'lf' | 'crlf' | 'cr' | 'mixed' | 'none'; readOnly?: boolean }
 export interface Runtime { protocolVersion: number; workerReady: boolean }
 export interface Api {
+  exportD2(request: D2ExportRequest): Promise<Result<{ saved: boolean }>>;
+  readD2File(request: PathRequest): Promise<Result<Uint8Array>>;
+  plugins(request: PluginRequest): Promise<Result<unknown>>;
+  attachmentFilePath(file: File): string;
+  attachments(request: AttachmentRequest): Promise<Result<AttachmentResult>>;
   agentProgress(request: OperationRequest): Promise<Result<string>>;
   generateProposal(request: ProposalRequest): Promise<Result<ProposalResult>>;
   cancelProposal(request: ScopedRequest): Promise<Result<null>>;
@@ -102,6 +121,7 @@ export interface Api {
   configureEditor(request: Request): Promise<Result<string>>;
   externalDecision(request: Request): Promise<Result<'save' | 'disk' | 'cancel'>>;
   openExternal(request: PathRequest): Promise<Result<null>>;
+  openWebLink(request: ScopedRequest & { url: string }): Promise<Result<null>>;
   pendingLaunch(request: Request): Promise<Result<PendingLaunch | null>>;
   applyLaunch(request: LaunchRequest): Promise<Result<LaunchResult>>;
   dismissLaunch(request: LaunchRequest): Promise<Result<null>>;
@@ -153,6 +173,27 @@ export function validFolderName(name: unknown): name is string {
 }
 export function validate(method: Method, input: unknown): Request | ScopedRequest | PathRequest | NamedRequest | RecentRequest | CreateDirectoryRequest {
   const fail = () => { throw new BoundaryError('INVALID_REQUEST', '요청 형식이 올바르지 않습니다.'); };
+  if (method === 'exportD2') {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return fail();
+    const { format, name, frames, interval, ...scope } = input as Record<string, unknown>;
+    validate('closeWorkspace', scope);
+    if (!validD2Export(input as Record<string, unknown>)) return fail();
+    return input as ScopedRequest;
+  }
+  if (method === 'readD2File') {
+    validate('readDocument', input);
+    const p = (input as PathRequest).relativePath;
+    if (!/\.(d2|ttf|png|jpe?g|gif|webp|svg)$/i.test(p) || p.split('/').some(part => part.startsWith('.'))) return fail();
+    return input as PathRequest;
+  }
+  if (method === 'openWebLink') {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return fail();
+    const { url, ...scope } = input as Record<string, unknown>;
+    if (!validWebLink(url)) return fail();
+    validate('closeWorkspace', scope);
+    return input as ScopedRequest;
+  }
+  if (method === 'plugins') return validPluginRequest(input) ? input : fail();
   if (!input || typeof input !== 'object' || Array.isArray(input)) return fail();
   const value = input as Record<string, unknown>;
   if (method === 'generateProposal' && (value.approved !== true || typeof value.relativePath !== 'string' || !/\.adoc$/i.test(value.relativePath) || value.relativePath.split('/').some(p => p.toLowerCase() === '.git') || typeof value.revision !== 'string' || !/^[a-f0-9]{64}$/.test(value.revision) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 100000 || !value.text.isWellFormed() || /[\0\r]/.test(value.text) || typeof value.instruction !== 'string' || !value.instruction.trim() || value.instruction.length > 2000 || !value.instruction.isWellFormed() || /[\x00-\x1f]/.test(value.instruction) || !['ollama', 'openai-compatible', 'external-agent'].includes(String(value.provider)) || !Number.isInteger(value.port) || Number(value.port) < 1024 || Number(value.port) > 65535 || typeof value.chatModel !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,119}$/.test(value.chatModel))) return fail();
@@ -166,6 +207,11 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
   }
   if (method === 'gitVersion' && (typeof value.commit !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.commit))) return fail();
   if (['gitFile', 'gitVersion'].includes(method) && (typeof value.relativePath !== 'string' || !/\.adoc$/i.test(value.relativePath) || value.relativePath.split('/').some(part => part.toLowerCase() === '.git'))) return fail();
+  if (method === 'attachments') {
+    if (!validAttachmentRequest(value)) return fail();
+    validate('readDocument', { requestId: value.requestId, workspaceId: value.workspaceId, workspaceEpoch: value.workspaceEpoch, relativePath: value.relativePath });
+    return input as AttachmentRequest;
+  }
   const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const path = ['generateProposal', 'semanticDiff', 'openExternal', 'gitFile', 'gitVersion', 'previewFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const named = ['copyDocument', 'createWorkspace', 'createDirectory', 'createDocument'].includes(method);

@@ -20,13 +20,13 @@ try {
   await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
-  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
+  await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   await page.locator('.outline-item').filter({ hasText: 'Included section' }).waitFor(); checks.push('parser outline with include source');
   assert.ok(await page.locator('.cm-content .cm-line span').count()); checks.push('syntax highlighting');
   await page.getByRole('button', { name: '분할', exact: true }).click();
   const preview = page.frameLocator('iframe[title="AsciiDoc 미리보기"]');
   await preview.getByRole('heading', { name: 'Included section' }).waitFor(); checks.push('split preview from parser output');
-  assert.equal(await preview.locator('script,img,iframe,object,form,[onerror],[onclick],a[href^="javascript:"]').count(), 0);
+  assert.equal(await preview.locator('script,img[src],iframe,object,form,[onerror],[onclick],a[href^="javascript:"]').count(), 0);
   const isolation = await page.locator('iframe').evaluate(frame => ({ sandbox: frame.getAttribute('sandbox'), bridge: typeof frame.contentWindow.metis, pwned: frame.contentWindow.pwned }));
   assert.equal(isolation.sandbox, 'allow-same-origin'); assert.equal(isolation.bridge, 'undefined'); assert.equal(isolation.pwned, undefined); assert.deepEqual(external, []); checks.push('sanitizer, scriptless frame, no bridge or network');
   await page.getByRole('button', { name: '포함 원문 열기: shared/part.adoc', exact: true }).click();

@@ -1,4 +1,5 @@
 import type { Command } from './commands';
+import { validPreviewResult, type ExtensionPreviewInput, type ExtensionPreviewRenderer, type ExtensionPreviewResult } from './preview-extensions';
 export interface ExtensionModel { path: string; outline: Array<{ title: string; line: number; relativePath: string }>; references: number; diagnostics: number }
 export interface ExtensionViewData { summary: string; rows: string[] }
 export interface ExtensionApi {
@@ -6,21 +7,33 @@ export interface ExtensionApi {
   command(id: string, label: string, run: () => void): void;
   view(id: string, title: string, load: (signal: AbortSignal) => Promise<ExtensionViewData>): void;
   openView(id: string): void;
+  preview(id: string, render: ExtensionPreviewRenderer): void;
 }
-export interface ExtensionDefinition { id: string; name: string; description: string; activate(api: ExtensionApi): void | (() => void) }
+export interface ExtensionDefinition { id: string; name: string; description: string; defaultEnabled?: boolean; activate(api: ExtensionApi): void | (() => void) }
 export type ExtensionState = 'disabled' | 'enabled' | 'failed' | 'removed';
-interface Entry { definition: ExtensionDefinition; state: ExtensionState; epoch: number; cleanup?: () => void; error?: string; commands: Command[]; views: Map<string, { title: string; load(signal: AbortSignal): Promise<ExtensionViewData> }>; pending: Set<AbortController> }
+interface Entry { definition: ExtensionDefinition; state: ExtensionState; epoch: number; cleanup?: () => void; error?: string; commands: Command[]; views: Map<string, { title: string; load(signal: AbortSignal): Promise<ExtensionViewData> }>; previews: Map<string, ExtensionPreviewRenderer>; previewPending: Set<AbortController>; pending: Set<AbortController> }
 export class ExtensionRuntime {
   private entries = new Map<string, Entry>();
   private listeners = new Set<() => void>();
+  private revision = 0;
+  version = () => this.revision;
   constructor(definitions: ExtensionDefinition[], private host: { readModel(): ExtensionModel | undefined; openView(owner: string, id: string): void }) {
     for (const definition of definitions) {
       if (!/^[a-z][a-z0-9-]{0,50}$/.test(definition.id) || this.entries.has(definition.id)) throw Error('Invalid extension ID');
-      this.entries.set(definition.id, { definition, state: 'disabled', epoch: 0, commands: [], views: new Map(), pending: new Set() });
+      this.entries.set(definition.id, { definition, state: 'disabled', epoch: 0, commands: [], views: new Map(), previews: new Map(), previewPending: new Set(), pending: new Set() });
     }
   }
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
-  private notify() { for (const listener of this.listeners) listener(); }
+  private notify() { this.revision++; for (const listener of this.listeners) listener(); }
+  restore(saved: unknown) {
+    const states = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved as Record<string, unknown> : {};
+    for (const entry of this.entries.values()) {
+      const state = states[entry.definition.id];
+      if (state === 'removed') this.remove(entry.definition.id);
+      else if (state === 'enabled' || (state === undefined && entry.definition.defaultEnabled)) this.enable(entry.definition.id);
+      else this.disable(entry.definition.id);
+    }
+  }
   list() { return [...this.entries.values()].map(e => ({ id: e.definition.id, name: e.definition.name, description: e.definition.description, state: e.state, error: e.error })); }
   commands(): Command[] { return [...this.entries.values()].flatMap(e => e.state === 'enabled' ? e.commands : []); }
   views() { return [...this.entries.values()].flatMap(e => e.state === 'enabled' ? [...e.views].map(([id, view]) => ({ owner: e.definition.id, id, title: view.title })) : []); }
@@ -28,14 +41,15 @@ export class ExtensionRuntime {
   private stop(entry: Entry, state: ExtensionState) {
     entry.epoch++; entry.state = state;
     for (const controller of entry.pending) controller.abort(); entry.pending.clear();
+    for (const controller of entry.previewPending) controller.abort(); entry.previewPending.clear(); entry.previews.clear();
     entry.commands = []; entry.views.clear();
     const cleanup = entry.cleanup; entry.cleanup = undefined;
-    try { cleanup?.(); } catch { entry.error = '확장 정리를 완료하지 못했습니다. 등록된 명령과 보기는 해제했습니다.'; }
+    try { cleanup?.(); } catch { entry.error = '확장 정리를 완료하지 못했습니다. 등록된 명령·보기·미리보기는 해제했습니다.'; }
   }
   disable(id: string) { const e = this.entry(id); this.stop(e, 'disabled'); this.notify(); }
   remove(id: string) { const e = this.entry(id); this.stop(e, 'removed'); this.notify(); }
   install(id: string) { const e = this.entry(id); if (e.state === 'removed') { e.state = 'disabled'; e.error = undefined; this.notify(); } }
-  private fail(entry: Entry) { this.stop(entry, 'failed'); entry.error = '확장 실행에 실패하여 명령과 보기를 중단했습니다. 기본 편집은 계속 사용할 수 있습니다.'; this.notify(); }
+  private fail(entry: Entry) { this.stop(entry, 'failed'); entry.error = '확장 실행에 실패하여 명령·보기·미리보기를 중단했습니다. 기본 편집은 계속 사용할 수 있습니다.'; this.notify(); }
   enable(id: string) {
     const entry = this.entry(id); if (entry.state === 'enabled' || entry.state === 'removed') return;
     this.stop(entry, 'enabled'); entry.error = undefined; const epoch = entry.epoch; let registering = true;
@@ -47,7 +61,8 @@ export class ExtensionRuntime {
         readModel: () => { check(); const model = this.host.readModel(); return model ? structuredClone(model) : undefined; },
         command: (id, label, run) => { check(); localId(id); const key = `extension.${entry.definition.id}.${id}`; if (entry.commands.some(c => c.id === key) || !label || label.length > 120) throw Error('Invalid command'); entry.commands.push({ id: key, label, reason: () => valid() ? undefined : '확장이 비활성화되었습니다.', run: () => { check(); try { const result: unknown = run(); if (result && typeof (result as Promise<unknown>).then === 'function') { Promise.resolve(result).catch(() => {}); throw Error('Commands must be synchronous'); } } catch { if (valid()) this.fail(entry); } } }); },
         view: (id, title, load) => { check(); localId(id); if (entry.views.has(id) || !title || title.length > 120) throw Error('Invalid view'); entry.views.set(id, { title, load }); },
-        openView: id => { check(); if (!entry.views.has(id)) throw Error('Unknown view'); this.host.openView(entry.definition.id, id); }
+        openView: id => { check(); if (!entry.views.has(id)) throw Error('Unknown view'); this.host.openView(entry.definition.id, id); },
+        preview: (id, render) => { check(); localId(id); if (entry.previews.has(id) || typeof render !== 'function') throw Error('Invalid preview'); entry.previews.set(id, render); }
       });
       if (cleanup !== undefined && typeof cleanup !== 'function') throw Error('Invalid cleanup');
       entry.cleanup = cleanup || undefined;
@@ -68,5 +83,36 @@ export class ExtensionRuntime {
     finally { clearTimeout(timer); controller.abort(); entry.pending.delete(controller); }
   }
   cancelViews() { for (const entry of this.entries.values()) { for (const controller of entry.pending) controller.abort(); entry.pending.clear(); } }
+  async renderPreview(input: ExtensionPreviewInput, signal: AbortSignal): Promise<ExtensionPreviewResult | undefined> {
+    const revision = this.revision;
+    const result: ExtensionPreviewResult = { html: input.html, assets: new Map(), diagnostics: [] };
+    for (const entry of this.entries.values()) {
+      if (entry.state !== 'enabled') continue;
+      for (const render of entry.previews.values()) {
+        if (signal.aborted || revision !== this.revision) return;
+        const controller = new AbortController(), epoch = entry.epoch;
+        const abort = () => controller.abort(); signal.addEventListener('abort', abort, { once: true });
+        entry.previewPending.add(controller);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const value = await Promise.race([
+            Promise.resolve().then(() => { if (controller.signal.aborted) throw Error('Cancelled'); return render({ ...input, html: result.html }, controller.signal); }),
+            new Promise<never>((_, reject) => { controller.signal.addEventListener('abort', () => reject(Error('Cancelled')), { once: true }); timer = setTimeout(() => reject(Error('Timeout')), 15000); })
+          ]);
+          if (controller.signal.aborted || revision !== this.revision) return;
+          if (!validPreviewResult(value) || [...value.assets.keys()].some(key => result.assets.has(key))) throw Error('Invalid preview result');
+          result.html = value.html;
+          for (const [key, asset] of value.assets) result.assets.set(key, structuredClone(asset));
+          result.diagnostics.push(...structuredClone(value.diagnostics));
+        } catch {
+          if (!controller.signal.aborted && entry.epoch === epoch && entry.state === 'enabled') this.fail(entry);
+          return;
+        } finally {
+          clearTimeout(timer); controller.abort(); signal.removeEventListener('abort', abort); entry.previewPending.delete(controller);
+        }
+      }
+    }
+    return signal.aborted || revision !== this.revision ? undefined : result;
+  }
   dispose() { for (const entry of this.entries.values()) this.stop(entry, 'disabled'); this.listeners.clear(); }
 }

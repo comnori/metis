@@ -1,7 +1,8 @@
+import { attachmentMacro, attachmentSources } from './attachments';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, hoverTooltip } from '@codemirror/view';
-import { history, historyKeymap, defaultKeymap, undo, redo } from '@codemirror/commands';
+import { history, historyKeymap, defaultKeymap, undo, redo, isolateHistory } from '@codemirror/commands';
 import { foldGutter, foldKeymap } from '@codemirror/language';
 import type { DocumentSnapshot, Session } from '@metis/contracts';
 import type { OutlineEntry } from '@metis/contracts';
@@ -15,11 +16,11 @@ import { Conflict } from './conflict';
 import { executeCommand, type Command } from '@metis/contracts';
 import type { WorkspaceAppearanceV1 } from '../../shared/model/appearance';
 const normalized = (text: string) => text.replace(/\r\n|\r/g, '\n');
-interface Tab { previewPosition?: PreviewPosition; baseline: DocumentSnapshot; text: string; view?: EditorView; jumpLine?: number; analysis?: Analysis; analysisText?: string; external?: { message: string; disk?: DocumentSnapshot; missing?: boolean } }
+interface Tab { attachmentPoints?: Set<{ position: number }>; previewPosition?: PreviewPosition; baseline: DocumentSnapshot; text: string; view?: EditorView; jumpLine?: number; analysis?: Analysis; analysisText?: string; external?: { message: string; disk?: DocumentSnapshot; missing?: boolean } }
 const dirty = (tab: Tab) => tab.text !== normalized(tab.baseline.text) || !!tab.external?.missing;
 interface Visit { path: string; text: string; selection: ReturnType<EditorSelection['toJSON']>; top: number; left: number; mode: 'source' | 'split' | 'preview' }
 export interface DocumentTabSnapshot { path: string; dirty: boolean }
-export interface DocumentsHandle { extensionModel(): import('@metis/contracts').ExtensionModel | undefined; commands(): Command[]; open(document: DocumentSnapshot, line?: number): void; activate(path: string): void; closeTab(path: string): Promise<void>; closeOtherTabs?(path: string): Promise<void>; closeTabsToRight?(path: string): Promise<void>; closeAllTabs?(): Promise<void>; draft(path: string): string | undefined; restoreDraft(disk: DocumentSnapshot, text: string, expectedDraft: string | undefined): Promise<string | undefined>; isDirty(path: string): boolean; fileChanged(source: string, destination: string, affected: string[]): void; clear(): void; allowLeave(): Promise<boolean> }
+export interface DocumentsHandle { extensionModel(): import('@metis/contracts').ExtensionModel | undefined; commands(): Command[]; open(document: DocumentSnapshot, line?: number): void; activate(path: string): void; closeTab(path: string): Promise<void>; closeOtherTabs?(path: string): Promise<void>; closeTabsToRight?(path: string): Promise<void>; closeAllTabs?(): Promise<void>; draft(path: string): string | undefined; revision(path: string): string | undefined; restoreDraft(disk: DocumentSnapshot, text: string, expectedDraft: string | undefined): Promise<string | undefined>; isDirty(path: string): boolean; fileChanged(source: string, destination: string, affected: string[]): void; clear(): void; allowLeave(): Promise<boolean> }
 function jump(tab: Tab, line: number) {
   if (!tab.view) { tab.jumpLine = line; return; }
   const position = tab.view.state.doc.line(Math.max(1, Math.min(tab.view.state.doc.lines, line))).from;
@@ -109,7 +110,8 @@ function resolveDocPath(fromDoc: string, targetPath: string): string {
   }
   return parts.join('/');
 }
-function Editor({ tab, changed, save, onSource, onJump, onStats }: { tab: Tab; changed(): void; save(): void; onSource?(entry: OutlineEntry): void; onJump?(line: number): void; onStats?(stats: { line: number; col: number; words: number; chars: number }): void }) {
+function Editor({ tab, changed, save, attach, onSource, onJump, onStats }: { tab: Tab; changed(): void; save(): void; attach(files?: File[], paste?: boolean, position?: number): void; onSource?(entry: OutlineEntry): void; onJump?(line: number): void; onStats?(stats: { line: number; col: number; words: number; chars: number }): void }) {
+  const attachCurrent = useRef(attach); attachCurrent.current = attach;
   const saveCurrent = useRef(save); saveCurrent.current = save;
   const onSourceCurrent = useRef(onSource); onSourceCurrent.current = onSource;
   const onJumpCurrent = useRef(onJump); onJumpCurrent.current = onJump;
@@ -129,6 +131,15 @@ function Editor({ tab, changed, save, onSource, onJump, onStats }: { tab: Tab; c
       access.current.of([EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)]), EditorView.lineWrapping,
       EditorView.contentAttributes.of({ 'aria-label': '문서 편집기' }),
       EditorView.domEventHandlers({
+        dragover(event) { if (event.dataTransfer?.types.includes('Files')) { event.preventDefault(); return true; } },
+        drop(event, view) {
+          const files = [...(event.dataTransfer?.files ?? [])]; if (!files.length) return false;
+          event.preventDefault(); if (!view.state.readOnly) attachCurrent.current(files, false, view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head); return true;
+        },
+        paste(event, view) {
+          const files = [...(event.clipboardData?.files ?? [])]; if (!files.length) return false;
+          event.preventDefault(); if (!view.state.readOnly) attachCurrent.current(files, true); return true;
+        },
         keydown(event, view) {
           if (event.key === 'Control' || event.key === 'Meta') view.contentDOM.classList.add('cm-ctrl-pressed');
         },
@@ -156,7 +167,7 @@ function Editor({ tab, changed, save, onSource, onJump, onStats }: { tab: Tab; c
         }
       }),
       EditorView.updateListener.of(update => {
-        if (update.docChanged) { tab.text = update.state.doc.toString(); changed(); }
+        if (update.docChanged) { for (const point of tab.attachmentPoints ?? []) point.position = update.changes.mapPos(point.position, 1); tab.text = update.state.doc.toString(); changed(); }
         if (update.docChanged || update.selectionSet) {
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
@@ -173,7 +184,7 @@ function Editor({ tab, changed, save, onSource, onJump, onStats }: { tab: Tab; c
   return <div className="source" ref={element} />;
 }
 
-export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspectorTarget?: HTMLElement | null; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; favorites: string[]; onToggleFavorite(path: string): void; onSource(entry: OutlineEntry): void; onActive(document?: DocumentSnapshot): void; onStats?(stats: { line: number; col: number; words: number; chars: number } | undefined): void; onAnalysis(path: string, analysis: Analysis): void; onTabsChanged(tabs: DocumentTabSnapshot[], active: string): void; onError(message: string): void; onStatus(message: string): void; onBusy(value: boolean): void; onCommandsChanged(): void }>(function Documents(props, ref) {
+export const Documents = forwardRef<DocumentsHandle, { extensions: import('@metis/contracts').ExtensionRuntime; session?: Session; inspectorTarget?: HTMLElement | null; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; favorites: string[]; onToggleFavorite(path: string): void; onSource(entry: OutlineEntry): void; onActive(document?: DocumentSnapshot): void; onStats?(stats: { line: number; col: number; words: number; chars: number } | undefined): void; onAnalysis(path: string, analysis: Analysis): void; onTabsChanged(tabs: DocumentTabSnapshot[], active: string): void; onError(message: string): void; onStatus(message: string): void; onBusy(value: boolean): void; onCommandsChanged(): void }>(function Documents(props, ref) {
   const tabs = useRef(new Map<string, Tab>());
   const [active, setActive] = useState('');
   const activeRef = useRef('');
@@ -314,6 +325,7 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
   useImperativeHandle(ref, () => ({ commands: documentCommands,
     extensionModel() { const tab = tabs.current.get(active); if (!tab?.analysis || tab.analysisText !== tab.text) return; return { path: active, outline: tab.analysis.outline, references: tab.analysis.relations.length, diagnostics: tab.analysis.diagnostics.length }; },
     draft(path) { return tabs.current.get(path)?.text; },
+    revision(path) { const tab = tabs.current.get(path); return tab?.external?.missing ? "missing" : tab?.external?.disk?.revision ?? tab?.baseline.revision; },
     async restoreDraft(disk, text, expectedDraft) {
       const session = current.current.session, existing = tabs.current.get(disk.relativePath);
       if (!session || saving.current) return '편집 작업이 진행 중입니다.';
@@ -429,10 +441,44 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
     } catch { current.current.onError('외부 편집기 요청을 완료하지 못했습니다.'); }
     finally { saving.current = false; current.current.onBusy(false); changed(); }
   }
+  async function insertAttachments(tab: Tab, files?: File[], paste = false, position?: number) {
+    const session = current.current.session, view = tab.view;
+    if (!session || !view || tab.baseline.readOnly || tab.baseline.eol === 'mixed') return;
+    const originalPath = tab.baseline.relativePath;
+    const point = { position: position ?? view.state.selection.main.head };
+    (tab.attachmentPoints ??= new Set()).add(point);
+    try {
+      const scope = { requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath: originalPath };
+      const sources = files ? await attachmentSources(files, paste) : undefined;
+      const result = await window.metis.attachments({ ...scope, action: 'import', ...(sources ? { sources } : {}) });
+      if (!result.ok) throw new Error(result.error.message);
+      if (current.current.session?.workspaceId !== session.workspaceId || tabs.current.get(originalPath) !== tab || tab.baseline.relativePath !== originalPath) {
+        current.current.onStatus('문서가 닫히거나 변경되어 삽입하지 않았습니다. 보존된 첨부: ' + result.value.files.map(f => f.relativePath).join(', ')); return;
+      }
+      if (!result.value.files.length) { if (result.value.errors.length) current.current.onError(result.value.errors.join(' · ')); return; }
+      const prefix = tab.text.slice(0, point.position);
+      const latestAnalysis = await window.metis.analyzeDocument({ ...scope, text: prefix });
+      if (!latestAnalysis.ok) throw new Error('첨부는 보존했지만 삽입 위치의 속성을 확인하지 못했습니다: ' + result.value.files.map(f => f.relativePath).join(', '));
+      if (current.current.session?.workspaceId !== session.workspaceId || tabs.current.get(originalPath) !== tab || tab.baseline.relativePath !== originalPath) {
+        current.current.onStatus('문서가 변경되어 삽입하지 않았습니다. 보존된 첨부: ' + result.value.files.map(f => f.relativePath).join(', ')); return;
+      }
+      if (tab.text.slice(0, point.position) !== prefix) throw new Error('삽입 위치 앞의 문서가 변경되었습니다. 첨부는 보존했습니다: ' + result.value.files.map(f => f.relativePath).join(', '));
+      const lines: string[] = [], errors = [...result.value.errors];
+      for (const file of result.value.files) { try { lines.push(attachmentMacro(originalPath, file, latestAnalysis.value.imagesDirectory)); } catch (e) { errors.push(String(e) + ': ' + file.relativePath); } }
+      if (lines.length && tab.view) {
+        const insert = '\n\n' + lines.join('\n\n') + '\n';
+        tab.view.dispatch({ changes: { from: point.position, insert }, selection: { anchor: point.position + insert.length }, userEvent: 'input.attachments', annotations: isolateHistory.of('full') });
+        current.current.onStatus(lines.length + '개 첨부를 삽입했습니다. 문서 저장은 별도로 실행하세요.');
+      }
+      if (errors.length) current.current.onError(errors.join(' · '));
+    } catch (e) { current.current.onError(e instanceof Error ? e.message : '첨부 삽입 실패'); }
+    finally { tab.attachmentPoints?.delete(point); }
+  }
   function documentCommands(): Command[] {
     const tab = tabs.current.get(active);
     const reason = () => saving.current ? '저장·보존 작업이 진행 중입니다.' : !tab ? '먼저 문서를 여세요.' : undefined;
     return [
+      { id: 'document.attachment', label: '첨부파일 삽입', reason: () => reason() ?? (tab!.baseline.readOnly || tab!.baseline.eol === 'mixed' ? '읽기 전용 문서입니다.' : undefined), run: () => insertAttachments(tab!) },
       { id: 'navigation.back', label: '탐색 뒤로', reason: () => reason() ?? (!back.current.some(point => tabs.current.has(point.path)) ? '돌아갈 열린 문서가 없습니다.' : undefined), run: () => travel('back') },
       { id: 'navigation.forward', label: '탐색 앞으로', reason: () => reason() ?? (!forward.current.some(point => tabs.current.has(point.path)) ? '이동할 열린 문서가 없습니다.' : undefined), run: () => travel('forward') },
       { id: 'document.external', label: '외부 편집기로 열기', reason, run: openExternal },
@@ -446,15 +492,15 @@ export const Documents = forwardRef<DocumentsHandle, { session?: Session; inspec
   const selected = tabs.current.get(active), analyzedText = selected?.text;
   return <section className="documents" hidden={!selected}>
     {selected && <div className="document-title"><div className="document-heading"><div className="document-name"><button className={`document-star ${props.favorites.includes(active) ? 'starred' : ''}`} aria-label={`${active} ${props.favorites.includes(active) ? '즐겨찾기 제거' : '즐겨찾기 추가'}`} aria-pressed={props.favorites.includes(active)} onClick={() => props.onToggleFavorite(active)}>{props.favorites.includes(active) ? '★' : '☆'}</button><h1>{active}</h1></div><span className={dirty(selected) ? 'document-state dirty' : 'document-state'}>{selected.baseline.readOnly || selected.baseline.eol === 'mixed' ? '읽기 전용' : dirty(selected) ? '저장하지 않은 변경' : '저장됨'} · UTF-8{selected.baseline.bom ? ' BOM' : ''} · {selected.baseline.eol.toUpperCase()}</span></div>
-      <div className="document-toolbar"><div className="action-group edit-actions"><button className="save-action" disabled={!!documentCommands().find(command => command.id === 'document.save')?.reason()} onClick={() => runDocumentCommand('document.save')}>저장</button>
+      <div className="document-toolbar"><div className="action-group edit-actions"><button disabled={!!documentCommands().find(command => command.id === 'document.attachment')?.reason()} onClick={() => runDocumentCommand('document.attachment')}>첨부파일 삽입</button><button className="save-action" disabled={!!documentCommands().find(command => command.id === 'document.save')?.reason()} onClick={() => runDocumentCommand('document.save')}>저장</button>
         <button className="compact-action" title="실행 취소" aria-label="실행 취소" onClick={() => selected.view && undo(selected.view)}>↶</button><button className="compact-action" title="다시 실행" aria-label="다시 실행" onClick={() => selected.view && redo(selected.view)}>↷</button></div>
         <details className="document-more"><summary aria-label="문서 도구" title="문서 도구">⋯</summary><div><button disabled={saving.current} onClick={() => runDocumentCommand('document.external')}>외부 편집기로 열기</button><button disabled={saving.current} onClick={() => runDocumentCommand('document.inspect')}>외부 변경 확인</button><button disabled={saving.current} onClick={() => runDocumentCommand('document.preserve')}>편집 보존</button></div></details>
         <div className="view-switcher" aria-label="문서 보기"><button aria-pressed={mode === 'source'} onClick={() => runDocumentCommand('document.source')}>원문</button><button aria-pressed={mode === 'split'} onClick={() => runDocumentCommand('document.split')}>분할</button><button aria-pressed={mode === 'preview'} onClick={() => runDocumentCommand('document.preview')}>미리보기</button></div></div></div>}
     {selected?.external && <div className="external-change" role="status">{selected.external.message}<div className="tools">{selected.external.disk && <button disabled={saving.current} onClick={() => setReview({ tab: selected, disk: selected.external!.disk! })}>변경 비교</button>}<button disabled={saving.current} onClick={() => runDocumentCommand('document.inspect')}>다시 확인</button></div><div className="copy-controls"><input aria-label="사본 파일 이름" value={copyName} onChange={event => setCopyName(event.target.value)} /><button disabled={saving.current || !validFolderName(copyName) || !/\.adoc$/i.test(copyName)} onClick={() => keepOrCopy(selected, true)}>다른 이름으로 저장</button></div></div>}
     {review && <Conflict baseline={review.tab.baseline} disk={review.disk} text={review.tab.text} close={() => setReview(undefined)} resolve={resolve} />}
     <div className={`document-body mode-${mode}`}>
-      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} onSource={props.onSource} onJump={line => jump(tab, line)} onStats={stats => { if (path === activeRef.current) current.current.onStats?.(stats); }} /></div>)}</div>
-      {selected && props.session && <Preview appearance={props.appearance} stylesheetVersion={props.stylesheetVersion} inspector={false} inspectorTarget={props.inspectorTarget} key={active} position={selected.previewPosition ??= { x: 0, y: 0, outline: 0 }} editorLine={() => selected.view?.state.doc.lineAt(selected.view.state.selection.main.head).number ?? 1} reveal={() => setMode('split')} session={props.session} relativePath={active} text={selected.text} mode={mode} onAnalysis={value => { selected.analysis = value; selected.analysisText = analyzedText; props.onAnalysis(active, value); }} navigate={entry => { setMode('split'); if (entry.relativePath === active) jump(selected, entry.line); else props.onSource(entry); }} />}
+      <div className="editors" hidden={mode === 'preview'}>{[...tabs.current].map(([path, tab]) => <div className="editor-panel" hidden={path !== active} key={path}><Editor tab={tab} attach={(files, paste, position) => { void insertAttachments(tab, files, paste, position); }} changed={() => { scheduleDraft(tab); changed(); }} save={() => void runDocumentCommand('document.save')} onSource={props.onSource} onJump={line => jump(tab, line)} onStats={stats => { if (path === activeRef.current) current.current.onStats?.(stats); }} /></div>)}</div>
+      {selected && props.session && <Preview extensions={props.extensions} appearance={props.appearance} stylesheetVersion={props.stylesheetVersion} inspector={false} inspectorTarget={props.inspectorTarget} key={active} position={selected.previewPosition ??= { x: 0, y: 0, outline: 0 }} editorLine={() => selected.view?.state.doc.lineAt(selected.view.state.selection.main.head).number ?? 1} reveal={() => setMode('split')} session={props.session} relativePath={active} text={selected.text} mode={mode} onAnalysis={value => { selected.analysis = value; selected.analysisText = analyzedText; props.onAnalysis(active, value); }} navigate={entry => { setMode('split'); if (entry.relativePath === active) jump(selected, entry.line); else props.onSource(entry); }} />}
     </div>
 
   </section>;

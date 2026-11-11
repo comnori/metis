@@ -21,6 +21,7 @@ try {
   await writeFile(file, '= External two\n\nOther edit');
   await uiCommand(page, '외부 변경 확인'); await page.getByRole('button', { name: '변경 비교', exact: true }).click();
   const comparison = page.getByRole('dialog', { name: '충돌 비교', exact: true });
+  assert.equal(await comparison.getByRole('button', { name: '취소', exact: true }).evaluate(e => e === document.activeElement), true);
   assert.ok((await comparison.getByLabel('편집 기준').inputValue()).includes('Fresh disk'));
   assert.ok((await comparison.getByLabel('해결안').inputValue()).includes('Keep local'));
   await writeFile(file, '= Newer\n\nChanged during review');
@@ -41,7 +42,7 @@ try {
   await page.getByLabel('사본 파일 이름').fill('copy.adoc'); await page.getByRole('button', { name: '다른 이름으로 저장', exact: true }).click();
   await page.locator('footer').filter({ hasText: '사본을 저장' }).waitFor(); assert.equal(await readFile(path.join(fixture, 'copy.adoc'), 'utf8'), '= Chosen disk\n\nDisk wins'); checks.push('deleted source stays in buffer and copies to a new file');
   await uiCommand(page, '편집 보존'); await page.locator('footer').filter({ hasText: '복구 사본으로 보존' }).waitFor();
-  await uiCommand(page, '복구 사본'); const recovery = page.getByRole('dialog', { name: '복구 사본', exact: true });
+  await uiCommand(page, '복구 사본'); const recovery = page.getByRole('tabpanel', { name: '복구 사본', exact: true });
   await recovery.getByRole('button', { name: '편집 사본', exact: true }).first().click();
   assert.ok((await recovery.getByLabel('복구 내용').inputValue()).includes('Disk wins'));
   await recovery.getByLabel('새 파일 이름').fill('copy.adoc'); await recovery.getByRole('button', { name: '작업 공간 루트에 새 파일로 복원' }).click();
