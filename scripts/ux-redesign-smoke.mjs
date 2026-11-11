@@ -9,8 +9,20 @@ await mkdir(fixture, { recursive: true });
 const original = '= UX redesign\n\n== First section\n\nA saved sentence.\n\n== Second section\n\nAnother paragraph.';
 await writeFile(path.join(fixture, 'a.adoc'), original);
 const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; delete env.ELECTRON_RUN_AS_NODE;
-let app, page; const checks = [], errors = [];
+let app, page; const checks = [], errors = [], viewports = [];
 async function closeSettings() { await page.getByRole('dialog', { name: '설정', exact: true }).getByRole('button', { name: '닫기', exact: true }).click(); }
+async function assertSettingsSize(dialog) {
+  const size = await dialog.evaluate(node => {
+    const box = node.getBoundingClientRect();
+    return { width: innerWidth, height: innerHeight, dialogWidth: box.width, dialogHeight: box.height };
+  });
+  // Native window managers can cap the requested content size to the display.
+  // Both responsive contracts apply to the actual app content viewport.
+  const expanded = size.width <= 1000 || size.height <= 700;
+  assert.ok(Math.abs(size.dialogWidth - (expanded ? size.width - 32 : size.width * .8)) <= 2, JSON.stringify(size));
+  assert.ok(Math.abs(size.dialogHeight - (expanded ? size.height - 32 : size.height * .8)) <= 2, JSON.stringify(size));
+  return size;
+}
 async function visibleActions(dialog) {
   return dialog.evaluate(node => {
     const box = node.getBoundingClientRect();
@@ -34,7 +46,7 @@ try {
   const settings = page.getByRole('dialog', { name: '설정', exact: true });
   assert.equal(await settings.getByRole('group', { name: '글꼴과 크기' }).count(), 0);
   await page.mouse.click(1, 1); assert.equal(await settings.isVisible(), true);
-  const width = await settings.evaluate(e => e.getBoundingClientRect().width / innerWidth); assert.ok(width > .79 && width < .81);
+  viewports.push({ requested: [1366, 768, 1], actual: await assertSettingsSize(settings) });
   await settings.getByRole('searchbox').fill('글꼴');
   await settings.getByRole('button', { name: '글꼴과 크기', exact: false }).click();
   const uiSize = settings.getByLabel(/UI 크기/); await uiSize.fill('18');
@@ -71,6 +83,7 @@ try {
     // At narrow sizes the sidebar is intentionally collapsed; use its named toggle.
     if (!(await page.getByRole('button', { name: '설정', exact: true }).isVisible()) || await page.evaluate(() => innerWidth <= 900)) await page.getByRole('button', { name: '탐색', exact: true }).click();
     await page.getByRole('button', { name: '설정', exact: true }).click(); await settings.waitFor();
+    viewports.push({ requested: [w, h, zoom], actual: await assertSettingsSize(settings) });
     await settings.locator('.settings-content').evaluate(e => e.scrollTop = e.scrollHeight);
     assert.equal(await visibleActions(settings), true, `fixed settings actions ${w}x${h}@${zoom}`);
     assert.equal(await settings.evaluate(e => e.scrollWidth <= e.clientWidth + 1), true);
@@ -78,7 +91,7 @@ try {
     await page.keyboard.press('Escape'); await settings.waitFor({ state: 'detached' });
     if (await page.evaluate(() => innerWidth <= 900)) await page.keyboard.press('Escape');
   }
-  checks.push('1920, 1366, 800 and 200% layouts keep fixed dialog controls visible');
+  checks.push('Requested 1920, 1366, 800 and 200% layouts keep fixed controls visible; actual viewports satisfy 80% or 16px-margin sizing');
   await app.evaluate(({ BrowserWindow }) => { const win = BrowserWindow.getAllWindows()[0]; win.webContents.setZoomFactor(1); win.setContentSize(1366, 768); });
   const migration = await page.evaluate(() => {
     const key = Object.keys(localStorage).find(key => key.startsWith('metis.layout.v3.') && !key.endsWith('.window'));
@@ -91,7 +104,7 @@ try {
   await page.getByRole('button', { name: '탐색', exact: true }).click(); await page.locator('.favorites-panel').waitFor(); assert.equal(Math.round((await page.locator('.left-sidebar').boundingBox()).width), 350);
   checks.push('Layout v2 migrates panel selection, visibility and widths to v3 while retaining the original key');
   assert.equal(await readFile(path.join(fixture, 'a.adoc'), 'utf8'), original); assert.deepEqual(errors, []);
-  await writeFile(path.join(run, 'results.json'), JSON.stringify({ checks, errors }, null, 2));
-  console.log(JSON.stringify({ run, checks }, null, 2));
+  await writeFile(path.join(run, 'results.json'), JSON.stringify({ checks, errors, viewports }, null, 2));
+  console.log(JSON.stringify({ run, checks, viewports }, null, 2));
 } catch (error) { if (page) await page.screenshot({ path: path.join(run, 'failed.png') }).catch(() => {}); console.error('Artifacts:', run, 'Renderer errors:', errors, error); throw error; }
 finally { await app?.close(); }

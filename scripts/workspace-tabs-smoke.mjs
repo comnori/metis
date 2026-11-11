@@ -28,6 +28,7 @@ try {
   await uiCommand(page, '폴더 열기'); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
   await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('UNSAVED!'); await page.keyboard.press('Shift+ArrowLeft');
+  await page.waitForFunction(() => getSelection()?.toString() === '!');
   await editor.evaluate(e => e.dataset.retained = 'yes');
   await uiCommand(page, '변경 제안 검토'); const proposal = page.getByRole('tabpanel', { name: '변경 제안' });
   const json = JSON.stringify({ version: 1, changes: [{ id: 'change', before: 'Data is stored on disk.', after: 'Revised sentence.', reason: 'Test edit' }] });
@@ -36,7 +37,7 @@ try {
   const approve = proposal.getByRole('checkbox', { name: '선택한 변경과 비교 한계를 확인했고 초안 반영을 승인합니다.' }); await approve.check();
   const scroll = await proposal.locator('.task-body').evaluate(e => { e.scrollTop = 200; return e.scrollTop; });
   await page.getByRole('tab', { name: '● a.adoc', exact: true }).click(); await editor.focus();
-  assert.equal(await editor.getAttribute('data-retained'), 'yes'); assert.equal(await page.evaluate(() => getSelection()?.toString()), '!');
+  assert.equal(await editor.getAttribute('data-retained'), 'yes'); await page.waitForFunction(() => getSelection()?.toString() === '!');
   await page.getByRole('tab', { name: '변경 제안', exact: false }).click(); assert.equal(await proposal.locator('.task-body').evaluate(e => e.scrollTop), scroll);
   assert.equal(await proposal.getByLabel('제안 JSON').inputValue(), json); assert.equal(await approve.isChecked(), true);
   await page.getByRole('tab', { name: '● a.adoc', exact: true }).click(); await editor.focus(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText(' changed');
