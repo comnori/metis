@@ -1,10 +1,20 @@
+import { Attachments, attachmentCanOpen, readD2File } from '@metis/workspace';
+import type { AttachmentRequest } from '@metis/contracts';
 import { requestAgent } from '@metis/knowledge-index/external-agent';
 import { queryAi, generateProposal } from '@metis/knowledge-index/ai-provider';
 import type { AiRequest, ProposalRequest } from '@metis/contracts';
 import type { SemanticDiffRequest, SemanticDiffResult } from '@metis/contracts';
 import type { ContextRequest, ContextBundle } from '@metis/contracts';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, protocol, safeStorage } from 'electron';
+import { PluginHost } from './plugin-host';
+import { PluginAuth } from './plugin-auth';
+import { AuthDeepLinks, authProtocol, splitDeepLinkArguments } from './auth-deep-links';
+import { launchArguments } from './launch-arguments';
+import type { PluginRequest } from '@metis/contracts';
 import { PreviewWorker } from './preview-worker';
+import { youtubeAppId, youtubeReferer } from './youtube-player';
+import { exportD2 } from './d2-export';
+import type { D2ExportRequest } from '@metis/contracts';
 import type { OperationRequest, RelationIndex, GitVersionRequest } from '@metis/contracts';
 import { Drafts, GitWorkspace, PreviewStylesheets, initializeGitRepository, isOwnGitRepository } from '@metis/workspace';
 import { ExternalEditor, LaunchQueue } from '@metis/workspace';
@@ -15,21 +25,33 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { channels, protocolVersion, validate, failure, BoundaryError, type Method, type PathRequest, type ScopedRequest, type NamedRequest, type RecentRequest, type CreateDirectoryRequest } from '@metis/contracts';
 import { Workspace, fileError, createWorkspaceFolder, Recents, Recovery, FileChanges } from '@metis/workspace';
+protocol.registerSchemesAsPrivileged([{ scheme: 'metis-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }, { scheme: 'metis-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 if (process.env.METIS_USER_DATA) app.setPath('userData', process.env.METIS_USER_DATA);
 const launchQueue = new LaunchQueue();
-const appArgument = process.defaultApp ? process.argv.findIndex((value, index) => index > 0 && !value.startsWith('-') && path.resolve(value) === path.resolve(app.getAppPath())) : 0;
-const launchArgs = process.argv.slice(appArgument > 0 ? appArgument + 1 : 1);
-while (launchArgs[0]?.match(/^--(?:inspect(?:-brk)?|remote-debugging-port)=/)) launchArgs.shift();
+const authDeepLinks = new AuthDeepLinks();
+const receiveArguments = (args: string[], cwd: string) => {
+  const separated = splitDeepLinkArguments(args);
+  for (const link of separated.links) authDeepLinks.receive(link);
+  if (separated.args.length && !launchQueue.add(separated.args, cwd)) console.error('CLI queue full; retry after pending requests complete.');
+};
+const launchArgs = launchArguments(process.argv, !!process.defaultApp, app.getAppPath());
 const ownsLock = app.requestSingleInstanceLock({ args: launchArgs, cwd: process.cwd() });
 let launchWindow: BrowserWindow | undefined;
 if (!ownsLock) app.quit();
 else {
-  launchQueue.add(launchArgs, process.cwd());
+  receiveArguments(launchArgs, process.cwd());
   app.on('second-instance', (_event, _argv, cwd, data) => {
-    const input = data as { args?: unknown; cwd?: unknown };
+    const input = (data ?? {}) as { args?: unknown; cwd?: unknown };
     if (Array.isArray(input.args) && input.args.length <= 20 && input.args.every(value => typeof value === 'string' && value.length <= 4096)) {
-      if (!launchQueue.add(input.args, typeof input.cwd === 'string' ? input.cwd : cwd)) console.error('CLI queue full; retry after pending requests complete.');
+      receiveArguments(input.args, typeof input.cwd === 'string' ? input.cwd : cwd);
+    } else {
+      // Protocol launches can arrive without our CLI handoff metadata.
+      for (const link of splitDeepLinkArguments(_argv).links) authDeepLinks.receive(link);
     }
+    if (launchWindow) { if (launchWindow.isMinimized()) launchWindow.restore(); launchWindow.show(); launchWindow.focus(); }
+  });
+  app.on('open-url', (event, url) => {
+    event.preventDefault(); authDeepLinks.receive(url);
     if (launchWindow) { if (launchWindow.isMinimized()) launchWindow.restore(); launchWindow.show(); launchWindow.focus(); }
   });
 }
@@ -37,6 +59,8 @@ const recoveryRoot = path.join(app.getPath('userData'), 'recovery');
 const previewStylesheets = new PreviewStylesheets(path.join(app.getPath('userData'), 'preview-stylesheets.json'));
 const drafts = new Drafts(path.join(app.getPath('userData'), 'drafts'));
 const workspace = new Workspace(recoveryRoot);
+const attachments = new Attachments(workspace);
+let plugins: PluginHost | undefined;
 const fileChanges = new FileChanges(workspace);
 const git = new GitWorkspace(workspace);
 let gitBusy = false;
@@ -44,6 +68,14 @@ let selecting = false;
 let currentSession: Session | undefined, currentRoot: string | undefined;
 const externalEditor = new ExternalEditor(path.join(app.getPath('userData'), 'external-editor.json'));
 if (ownsLock) app.whenReady().then(() => {
+  // Smoke tests use disposable profiles and must not change the OS association.
+  if (!process.argv.includes('--smoke')) {
+    const registered = process.defaultApp
+      ? app.setAsDefaultProtocolClient(authProtocol, process.execPath, [app.getAppPath()])
+      : app.setAsDefaultProtocolClient(authProtocol);
+    if (!registered) console.warn('Metis deep-link registration unavailable.');
+  }
+  protocol.handle('metis-attachment', request => attachments.response(request.url, request.headers.get('range'), request.method));
   const recents = new Recents(path.join(app.getPath('userData'), 'recent-workspaces.json'));
   const searchWorker = new PreviewWorker<SearchRequest, SearchResults>(path.join(__dirname, '../utility/utility.cjs'), 'search', 10000);
   const semanticWorker = new PreviewWorker<SemanticDiffRequest, SemanticDiffResult>(path.join(__dirname, '../utility/utility.cjs'), 'semantic-diff', 15000);
@@ -54,6 +86,8 @@ if (ownsLock) app.whenReady().then(() => {
   let proposalController: AbortController | undefined;
   const resetAi = () => { agentProgress = undefined; proposalController?.abort(); proposalController = undefined; aiController?.abort(); aiController = undefined; aiBundle = undefined; };
   const open = async (root: string) => {
+    plugins?.reset();
+    attachments.clear();
     const session = await workspace.open(root);
     resetAi(); currentSession = session; currentRoot = workspace.analysisRoot({ requestId: 'root', ...session });
     semanticWorker.stop('작업 공간이 변경되어 의미 비교를 취소했습니다.');
@@ -81,6 +115,22 @@ if (ownsLock) app.whenReady().then(() => {
   const window = new BrowserWindow({ width: 1180, height: 800, show: !process.argv.includes('--smoke'),
     webPreferences: { preload: path.join(__dirname, '../preload/preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
   launchWindow = window;
+  const auth = new PluginAuth(path.join(app.getPath('userData'), 'plugin-secrets'), {
+    available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
+    encrypt: text => safeStorage.encryptString(text), decrypt: bytes => safeStorage.decryptString(bytes)
+  }, url => shell.openExternal(url), undefined, authDeepLinks);
+  plugins = new PluginHost(r => workspace.analysisRoot(r), app.getVersion(), recoveryRoot, auth, async kind => {
+    const result = await dialog.showOpenDialog(window, { title: 'Metis 확장 패키지 선택', properties: kind === 'folder' ? ['openDirectory'] : ['openFile'], ...(kind === 'folder' ? {} : { filters: [{ name: 'Metis 확장 ZIP', extensions: ['zip'] }] }) });
+    return result.canceled ? undefined : result.filePaths[0];
+  });
+  protocol.handle('metis-plugin', request => plugins!.assets(request.url));
+  app.on('before-quit', () => plugins?.reset());
+  if (process.platform === 'win32') app.setAppUserModelId(youtubeAppId);
+  // Local file previews have no HTTP Referer. Identify only our embedded player requests.
+  window.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (details, callback) => {
+    const referer = youtubeReferer(details.url, details.resourceType, details.webContentsId, window.webContents.id);
+    callback({ requestHeaders: referer ? { ...details.requestHeaders, Referer: referer } : details.requestHeaders });
+  });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   const discard = () => dialog.showMessageBoxSync(window, { type: 'warning', title: '저장하지 않은 변경', message: '저장하지 않은 편집 내용이 있습니다.', detail: '저장하려면 계속 편집을 선택한 뒤 저장 버튼을 눌러 주세요.', buttons: ['계속 편집', '저장하지 않고 닫기'], defaultId: 0, cancelId: 0 }) === 1;
   window.on('close', event => { if (selecting) event.preventDefault(); });
@@ -101,6 +151,38 @@ if (ownsLock) app.whenReady().then(() => {
           throw new BoundaryError('BUSY', '진행 중인 폴더 작업을 완료해 주세요.');
         let value: unknown;
         switch (method) {
+          case 'readD2File': value = await readD2File(workspace, request as PathRequest); break;
+          case 'exportD2': value = await exportD2(window, request as D2ExportRequest, () => { workspace.analysisRoot(request as ScopedRequest); }); break;
+          case 'openWebLink': {
+            const r = request as ScopedRequest & { url: string };
+            workspace.analysisRoot(r); await shell.openExternal(r.url); value = null; break;
+          }
+          case 'plugins':
+            try { value = await plugins!.execute(request as PluginRequest); }
+            catch (error) { if (error instanceof BoundaryError) throw error; throw new BoundaryError('INVALID_REQUEST', error instanceof Error ? error.message : '확장 요청을 처리하지 못했습니다.'); }
+            break;
+          case 'attachments': {
+            const r = request as AttachmentRequest;
+            workspace.analysisRoot(r);
+            if (r.action === 'import') {
+              if (!r.sources) {
+                const choice = await dialog.showOpenDialog(window, { title: '첨부파일 삽입', properties: ['openFile', 'multiSelections'] });
+                r.sources = choice.canceled ? [] : choice.filePaths.map(path => ({ path }));
+              }
+              value = await attachments.import(r);
+            } else if (r.action === 'register') value = await attachments.register(r);
+            else {
+              const result = { files: [], resources: [], errors: [] as string[] };
+              if (r.action === 'release') attachments.release(r.group!);
+              else {
+                const file = await attachments.resolveToken(r.token!, r);
+                if (r.reveal || !attachmentCanOpen(file)) shell.showItemInFolder(file);
+                else { const error = await shell.openPath(file); if (error) result.errors.push(error); }
+              }
+              value = result;
+            }
+            break;
+          }
           case 'pendingLaunch': {
             const item = launchQueue.peek(); let sameWorkspace = false;
             if (item?.target) { try { sameWorkspace = await fs.realpath(item.target.root) === currentRoot; } catch { /* Validation occurs when applying. */ } }
@@ -286,7 +368,7 @@ if (ownsLock) app.whenReady().then(() => {
             } finally { selecting = false; }
             break;
           }
-          case 'closeWorkspace': resetAi(); value = workspace.close(request as ScopedRequest); semanticWorker.stop('작업 공간을 닫아 의미 비교를 취소했습니다.'); contextWorker.stop('작업 공간을 닫아 맥락 구성을 취소했습니다.'); currentRoot = undefined; currentSession = undefined; searchWorker.stop('작업 공간을 닫아 검색을 취소했습니다.'); relationsWorker.stop('작업 공간을 닫아 관계 조사를 취소했습니다.'); break;
+          case 'closeWorkspace': plugins?.reset(); attachments.clear(); resetAi(); value = workspace.close(request as ScopedRequest); semanticWorker.stop('작업 공간을 닫아 의미 비교를 취소했습니다.'); contextWorker.stop('작업 공간을 닫아 맥락 구성을 취소했습니다.'); currentRoot = undefined; currentSession = undefined; searchWorker.stop('작업 공간을 닫아 검색을 취소했습니다.'); relationsWorker.stop('작업 공간을 닫아 관계 조사를 취소했습니다.'); break;
           case 'createDirectory':
             selecting = true;
             try { value = await workspace.createDirectory(request as CreateDirectoryRequest); }

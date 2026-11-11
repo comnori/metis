@@ -19,7 +19,7 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUNSAVED BUFFER');
   await page.keyboard.press('ControlOrMeta+Shift+P'); const palette = page.getByRole('dialog', { name: '명령 팔레트' }); await palette.getByRole('combobox').fill('문서 집합 검증'); await palette.getByRole('combobox').press('Enter');
-  const modal = page.getByRole('dialog', { name: '문서 집합 검증' }), result = modal.getByRole('region', { name: '문서 검증 결과', exact: true });
+  const modal = page.getByRole('tabpanel', { name: '문서 집합 검증' }), result = modal.getByRole('region', { name: '문서 검증 결과', exact: true });
   async function selectB() { await modal.getByRole('checkbox', { name: 'b.adoc', exact: true }).check(); await modal.getByRole('checkbox', { name: '해석 기준: b.adoc', exact: true }).check(); }
   async function validate() { await modal.getByRole('button', { name: '문서 검증', exact: true }).click(); await modal.getByRole('status').filter({ hasText: '문서 검증을 완료했습니다.' }).waitFor(); }
   await selectB(); await validate();

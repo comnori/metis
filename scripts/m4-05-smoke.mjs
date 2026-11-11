@@ -26,9 +26,10 @@ try {
   await query.focus(); await query.press('ArrowDown'); await page.keyboard.press('Enter');
   await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
   await uiCommand(page, '탐색 뒤로'); await page.getByRole('heading', { name: 'a.adoc', exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '!');
+  await page.waitForFunction(() => window.getSelection()?.toString() === '!');
   assert.ok((await editor.textContent()).includes('Unsaved!'));
   await uiCommand(page, '탐색 앞으로'); await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.matches('.editor-panel:not([hidden]) .cm-content'));
   checks.push('filtered keyboard search opens source; back restores dirty source selection and forward returns to result');
   await page.keyboard.press('ControlOrMeta+Shift+f');
   assert.equal(await query.inputValue(), 'Needle'); assert.equal(await search.getByLabel('결과 경로 필터').inputValue(), 'b.adoc');
@@ -39,14 +40,14 @@ try {
   checks.push('search query and filters survive reopening; empty filtered result is explained and resettable');
   await uiCommand(page, '탐색 뒤로');
   await uiCommand(page, '관계 탐색');
-  const modal = page.getByRole('dialog', { name: '작업 공간 관계' });
-  await modal.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
+  const modal = page.getByRole('tabpanel', { name: '그래프·관계' });
+  await modal.getByRole('button', { name: '관련 목록', exact: true }).click(); await modal.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).click();
   await modal.getByRole('button', { name: '관계 그래프', exact: true }).click();
   const node = modal.getByRole('button', { name: '그래프 문서: b.adoc', exact: true });
   await node.focus(); await node.press('ArrowRight');
   const style = await node.getAttribute('style'); await node.evaluate(e => e.setAttribute('data-retained', 'yes'));
   const stamp = await modal.locator('p').filter({ hasText: /개 문서 해석/ }).textContent();
-  await page.waitForFunction(stamp => [...document.querySelectorAll('dialog p')].some(e => e.textContent.includes('개 문서 해석') && e.textContent !== stamp), stamp);
+  await page.waitForFunction(stamp => [...document.querySelectorAll('#tool-panel-graph p')].some(e => e.textContent.includes('개 문서 해석') && e.textContent !== stamp), stamp);
   assert.equal(await node.getAttribute('data-retained'), 'yes'); assert.equal(await node.getAttribute('style'), style); assert.equal(await node.getAttribute('aria-pressed'), 'true'); assert.equal(await node.evaluate(e => document.activeElement === e), true);
   await modal.getByRole('button', { name: '관련 목록', exact: true }).click(); assert.equal(await modal.getByRole('button', { name: '관련 문서: b.adoc', exact: true }).getAttribute('aria-pressed'), 'true');
   checks.push('automatic relation refresh retains graph DOM, keyboard focus, selection and layout; list shares selection');
@@ -71,5 +72,5 @@ try {
   assert.equal(await palette.getByRole('option').getAttribute('aria-disabled'), 'true'); await page.keyboard.press('Escape');
   checks.push('changed historical buffer skips stale selection; new navigation clears forward history');
   await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
-} catch (error) { console.error('Completed:', checks); throw error; }
+} catch (error) { console.error('Completed:', checks); if (page) { console.error(await page.locator('body').innerText().catch(() => '')); await page.screenshot({ path: path.join(run, 'failed.png') }).catch(() => {}); } throw error; }
 finally { await app.close(); }

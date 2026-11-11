@@ -1,29 +1,31 @@
+import { useReviewApi, useTaskActive } from '../../shared/model/workspace-tabs';
 import React, { useEffect, useRef, useState } from 'react';
 import type { ProposalResult, Session } from '@metis/contracts';
-export function ProposalGenerator({ session, path, base, busy, start, finish }: {
-  session: Session; path: string; base?: { text: string; disk: { revision: string } }; busy: boolean;
+export function ProposalGenerator({ session, path, base, busy, stale, start, finish }: {
+  session: Session; path: string; base?: { text: string; disk: { revision: string } }; busy: boolean; stale: boolean;
   start(): void; finish(result?: ProposalResult, error?: string): void;
 }) {
+  const api = useReviewApi(), active = useTaskActive(), visible = useRef(active); visible.current = active;
   const [provider, setProvider] = useState<'ollama' | 'openai-compatible' | 'external-agent'>('openai-compatible');
   const [port, setPort] = useState('8888'), [model, setModel] = useState(''), [instruction, setInstruction] = useState('');
   const [consent, setConsent] = useState(false), [running, setRunning] = useState(false);
   const serial = useRef(0);
   const [progress, setProgress] = useState('');
   const scope = () => ({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch });
-  useEffect(() => { setConsent(false); }, [base, provider, port, model, instruction]);
-  useEffect(() => () => { serial.current++; void window.metis.cancelProposal(scope()).catch(() => {}); }, []);
+  useEffect(() => { setConsent(false); }, [base, provider, port, model, instruction, stale]);
+  useEffect(() => () => { serial.current++; void api.cancelProposal(scope()).catch(() => {}); }, []);
   async function generate() {
-    if (!base || !consent) return;
+    if (!base || !consent || stale) return;
     const token = ++serial.current; setConsent(false); setRunning(true); setProgress('요청 준비 중'); start();
     const request = { ...scope(), relativePath: path, revision: base.disk.revision, text: base.text, instruction, provider, port: Number(port), chatModel: provider === 'external-agent' ? 'external-agent' : model, approved: true as const };
     let polling = false;
     const timer = provider === 'external-agent' ? setInterval(async () => {
-      if (polling) return; polling = true;
-      try { const response = await window.metis.agentProgress({ ...scope(), operationId: request.requestId }); if (token === serial.current && response.ok) setProgress(response.value); }
+      if (polling || !visible.current) return; polling = true;
+      try { const response = await api.agentProgress({ ...scope(), operationId: request.requestId }); if (token === serial.current && response.ok) setProgress(response.value); }
       catch { /* The generation response remains authoritative. */ } finally { polling = false; }
     }, 400) : undefined;
     try {
-      const response = await window.metis.generateProposal(request);
+      const response = await api.generateProposal(request);
       if (token !== serial.current) return;
       if (response.ok) finish(response.value); else finish(undefined, response.error.message);
     } catch { if (token === serial.current) finish(undefined, '제안 생성 응답을 받지 못했습니다.'); }
@@ -32,13 +34,13 @@ export function ProposalGenerator({ session, path, base, busy, start, finish }: 
   async function cancel() {
     // Keep generation locked until the main process acknowledges cancellation.
     setProgress('취소 요청 중 · 서버 응답을 기다립니다.');
-    try { const response = await window.metis.cancelProposal(scope()); if (!response.ok) { setProgress('취소 확인 실패 · 작업은 진행 중일 수 있습니다. 다시 취소하거나 결과를 기다리세요.'); return; } }
+    try { const response = await api.cancelProposal(scope()); if (!response.ok) { setProgress('취소 확인 실패 · 작업은 진행 중일 수 있습니다. 다시 취소하거나 결과를 기다리세요.'); return; } }
     catch { setProgress('취소 확인 실패 · 작업은 진행 중일 수 있습니다. 다시 취소하거나 결과를 기다리세요.'); return; }
     serial.current++; setRunning(false); finish(undefined, '제안 생성을 취소했습니다.');
   }
   const valid = base && base.text.trim() && base.text.length <= 100000 && instruction.trim() && Number.isInteger(Number(port)) && Number(port) >= 1024 && Number(port) <= 65535 && (provider === 'external-agent' || /^[a-zA-Z0-9][a-zA-Z0-9_.:/-]{0,119}$/.test(model));
   return <section aria-label="AI 제안 생성"><h3>AI 제안 생성</h3>
-    <fieldset disabled={busy}><legend>요청별 전송 승인</legend>
+    <fieldset disabled={busy || stale}><legend>요청별 전송 승인</legend>
       <label>제안 API<select value={provider} onChange={e => { setConsent(false); setProvider(e.target.value as typeof provider); }}><option value="openai-compatible">OpenAI 호환</option><option value="ollama">Ollama</option><option value="external-agent">외부 Agent</option></select></label>
       <label>제안 서버 포트<input value={port} onChange={e => { setConsent(false); setPort(e.target.value); }} /></label>
       {provider !== 'external-agent' && <label>제안 모델<input value={model} maxLength={120} onChange={e => { setConsent(false); setModel(e.target.value); }} /></label>}

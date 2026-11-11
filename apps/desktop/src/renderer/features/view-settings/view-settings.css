@@ -1,0 +1,31 @@
+.view-settings.dialog-shell .dialog-body { padding: 0; overflow: hidden; display: flex; }
+.settings-layout { flex: 1; min-height: 0; min-width: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.settings-nav { padding: 20px 12px; overflow: auto; border-right: 1px solid var(--border); background: var(--surface); }
+.settings-nav button { display: block; width: 100%; text-align: left; margin: 4px 0; padding: 10px 12px; border: 0; background: transparent; }
+.settings-nav button[aria-current=page] { background: var(--surface-selected); color: var(--text); font-weight: 600; box-shadow: inset 3px 0 var(--accent-strong); }
+.settings-search { display: block; margin: 0 0 20px; color: var(--muted); }
+.settings-search input { display: block; width: 100%; margin-top: 8px; }
+.settings-content { min-height: 0; overflow: auto; padding: 24px 32px; }
+.settings-content h3 { margin: 0 0 24px; font-size: 20px; }
+.settings-content fieldset { margin: 0 0 24px; padding: 20px; border: 1px solid var(--border); border-radius: 8px; max-width: 820px; }
+.settings-content label { display: block; margin: 12px 0 20px; }
+.settings-content label:last-child { margin-bottom: 0; }
+.settings-content select, .settings-content input:not([type=checkbox]):not([type=radio]) { display: block; width: 100%; margin-top: 8px; }
+.settings-content input[type=checkbox] { margin-right: 8px; }
+.settings-content p { font-size: 13px; color: var(--muted); }
+.settings-content details { margin-top: 20px; }
+.settings-content summary { cursor: pointer; }
+.settings-result { display: flex; justify-content: space-between; align-items: center; gap: 16px; width: 100%; text-align: left; margin: 8px 0; padding: 16px; }
+.settings-result span { color: var(--muted); font-size: 12px; }
+.font-example { padding: 20px; margin-top: 20px; border-radius: 8px; background: var(--canvas); line-height: 1.7; }
+.settings-back { display: none; }
+@media(max-width:650px) {
+  .settings-layout { display: block; overflow: auto; }
+  .settings-nav { border: 0; }
+  .settings-content { padding: 16px; }
+  .settings-detail-open .settings-nav { display: none; }
+  .settings-detail-open .settings-back { display: block; margin-bottom: 16px; }
+  .view-settings:not(.settings-detail-open) .settings-content { display: none; }
+  .view-settings:not(.settings-detail-open):has(input[type=search]:not(:placeholder-shown)) .settings-content { display: block; }
+  .settings-content fieldset { padding: 12px; }
+}

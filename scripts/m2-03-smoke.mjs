@@ -26,7 +26,7 @@ try {
   await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await uiCommand(page, '폴더 열기'); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nKeep my unsaved edit');
-  await uiCommand(page, 'Git 이력'); const modal = page.getByRole('dialog', { name: 'Git 변경과 이력' });
+  await uiCommand(page, 'Git 이력'); const modal = page.getByRole('tabpanel', { name: 'Git 변경·이력' });
   await modal.getByRole('button', { name: 'MM note.adoc', exact: true }).click();
   assert.ok((await modal.getByLabel('조회한 디스크').inputValue()).includes('Disk body')); assert.ok((await modal.getByLabel('조회한 편집 버퍼').inputValue()).includes('Keep my unsaved edit'));
   assert.ok((await modal.getByRole('region', { name: 'Git Diff' }).textContent()).includes('Staged body')); checks.push('Git status distinguishes staged and disk changes; comparison shows unsaved buffer separately');

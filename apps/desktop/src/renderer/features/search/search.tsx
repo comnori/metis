@@ -1,4 +1,5 @@
-import { openDialog, useSearchDialogEscape } from '../../shared/lib/accessibility';
+import { useSearchDialogEscape } from '../../shared/lib/accessibility';
+import { DialogShell } from '../../shared/ui/dialog-shell';
 import React, { useEffect, useRef, useState } from 'react';
 import type { Session, SearchHit, SearchRequest, SearchResults } from '@metis/contracts';
 import './search.css';
@@ -14,7 +15,7 @@ export function Search({ session, initialMode, memory, close, open, embedded = f
   const [phase, setPhase] = useState<OperationPhase>('idle');
   const container = useRef<HTMLElement>(null), generation = useRef(0);
   const scope = () => ({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch });
-  useEffect(() => { if (embedded) return; const node = container.current as HTMLDialogElement; const restoreFocus = openDialog(node); return () => restoreFocus(); }, [embedded]);
+
   useEffect(() => {
     const token = ++generation.current;
     setResults(undefined);
@@ -37,11 +38,11 @@ export function Search({ session, initialMode, memory, close, open, embedded = f
   function cancel() { generation.current++; setPhase('cancelled'); setRunning(false); setStatus('검색을 취소했습니다. 다시 검색할 수 있습니다.'); void window.metis.cancelSearch(scope()).catch(() => {}); }
   const hits = results?.hits.filter(hit => hit.relativePath.toLocaleLowerCase().includes(pathFilter.toLocaleLowerCase()) && (!kindFilter || hit.kind === kindFilter)) ?? [];
   const content = <>
-    <div className="search-heading"><h2 id="search-title">{mode === 'files' ? '빠른 열기' : '작업 공간 검색'}</h2><button onClick={close} aria-label="검색 닫기">닫기</button></div>
+    {embedded && <div className="search-heading"><h2 id="search-title">작업 공간 검색</h2><button onClick={close} aria-label="검색 닫기">닫기</button></div>}
     <p>저장된 .adoc 기준 · 미저장 편집 제외 · 외부 변경은 다시 검색하면 반영됩니다.</p>
     <div className="search-controls"><label>검색 모드<select value={mode} onChange={event => setMode(event.target.value as SearchRequest['mode'])}><option value="text">본문</option><option value="files">파일 · 빠른 열기</option><option value="symbols">심볼 · 절</option></select></label>
       <label><input type="checkbox" checked={caseSensitive} onChange={event => setCase(event.target.checked)} />대소문자 구분</label></div>
-    <label>검색어<input autoFocus type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); container.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
+    <label>검색어<input autoFocus data-dialog-initial-focus type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return; if (event.key === 'ArrowDown') { event.preventDefault(); container.current?.querySelector<HTMLButtonElement>('.search-result')?.focus(); } if (event.key === 'Enter') setRetry(value => value + 1); }} /></label>
     <div className="tools"><button onClick={() => setRetry(value => value + 1)}>다시 검색</button>{running && <button onClick={cancel}>검색 취소</button>}</div>
     <div className="search-controls"><label>결과 경로 필터<input value={pathFilter} maxLength={200} onChange={event => setPathFilter(event.target.value)} /></label><label>결과 종류<select value={kindFilter} onChange={event => setKindFilter(event.target.value)}><option value="">전체</option>{Object.entries(kinds).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><button onClick={() => { setPathFilter(''); setKindFilter(''); }}>필터 초기화</button></div>
     <p>Escape로 검색어를 지우지 않고 창을 닫습니다. 글자 조합 중에는 창을 유지합니다. 필터는 받은 결과 안에서 적용됩니다. 검색어에서 아래 방향키로 결과 이동, 위·아래/Home/End로 선택, Enter로 열 수 있습니다.</p>
@@ -62,5 +63,5 @@ export function Search({ session, initialMode, memory, close, open, embedded = f
   </>;
   return embedded
     ? <section {...escape} className="search-panel" ref={node => { container.current = node; }} aria-labelledby="search-title">{content}</section>
-    : <dialog {...escape} className="search-dialog" ref={node => { container.current = node; }} aria-labelledby="search-title" onCancel={event => { event.preventDefault(); close(); }}>{content}</dialog>;
+    : <DialogShell title="빠른 열기" size="medium" className="quick-open-dialog" close={close} actions={<button aria-label="검색 닫기" onClick={close}>닫기</button>}><div ref={node => { container.current = node; }}>{content}</div></DialogShell>;
 }

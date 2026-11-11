@@ -22,9 +22,9 @@ try {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
   }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).waitFor();
+  await page.getByRole('navigation', { name: '문서 탐색' }).waitFor();
   assert.equal(await page.locator('.app-header').count(), 0);
-  assert.equal(await page.getByRole('tab', { name: '파일', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await page.getByRole('navigation', { name: '문서 탐색' }).getByRole('button', { name: '파일', exact: true }).getAttribute('aria-current'), 'page');
 
   await page.getByRole('button', { name: '▸shared', exact: true }).click();
   await page.getByRole('button', { name: '▾shared', exact: true }).waitFor();
@@ -36,15 +36,15 @@ try {
   await page.getByRole('button', { name: '≡guide.adoc', exact: true }).click();
 
   await page.getByRole('button', { name: 'guide.adoc 즐겨찾기 추가', exact: true }).first().click();
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '즐겨찾기', exact: true }).click();
+  await page.getByRole('navigation', { name: '문서 탐색' }).getByRole('button', { name: '즐겨찾기', exact: true }).click();
   await page.locator('.favorites-panel').getByRole('button', { name: 'guide.adoc', exact: true }).waitFor();
   assert.equal(await page.locator('button[aria-label="guide.adoc 즐겨찾기 제거"][aria-pressed="true"]').first().getAttribute('aria-pressed'), 'true');
   const stored = await page.evaluate(() => Object.entries(localStorage).find(([key]) => key.startsWith('metis.favorites.v1.'))?.[1]);
   assert.deepEqual(JSON.parse(stored ?? '[]'), ['guide.adoc']);
   await page.screenshot({ path: path.join(run, 'navigation-favorites.png') });
 
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '파일', exact: true }).click();
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
+  await page.getByRole('navigation', { name: '문서 탐색' }).getByRole('button', { name: '파일', exact: true }).click();
+  await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   const rightSeparator = page.getByRole('separator', { name: '오른쪽 사이드바 너비 조절' });
   const before = Number(await rightSeparator.getAttribute('aria-valuenow'));
   await rightSeparator.focus(); await rightSeparator.press('ArrowLeft');
@@ -56,19 +56,19 @@ try {
   await search.locator('.search-result').first().click();
   assert.equal(await search.isVisible(), true);
 
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '그래프', exact: true }).click();
-  const graph = page.getByRole('region', { name: '그래프 뷰' });
+  await page.getByRole('navigation', { name: '작업 도구' }).getByRole('button', { name: '그래프·관계', exact: true }).click();
+  const graph = page.getByRole('tabpanel', { name: '그래프·관계', exact: true });
   await graph.getByRole('button', { name: '그래프 문서: shared/part.adoc', exact: true }).waitFor();
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '그래프', exact: true }).click();
-  assert.equal(await page.getByRole('tab', { name: '◎ 그래프', exact: true }).count(), 1);
+  await page.getByRole('navigation', { name: '작업 도구' }).getByRole('button', { name: '그래프·관계', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: '그래프·관계', exact: true }).count(), 1);
   await page.screenshot({ path: path.join(run, 'navigation-favorites-graph.png') });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(800, 600));
-  await page.getByRole('navigation', { name: '워크스페이스 리본' }).getByRole('button', { name: '파일', exact: true }).click();
+  await page.getByRole('button', { name: '탐색', exact: true }).click();
   await page.locator('.sidebar-scrim').waitFor();
   await page.screenshot({ path: path.join(run, 'responsive-overlay.png') });
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('.sidebar-scrim').count(), 0);
-  console.log(JSON.stringify({ run, checks: ['44px ribbon shell', 'icon-only file actions with tooltips', 'tabbed left and right sidebars', 'persistent embedded search', 'keyboard resizers', 'singleton central graph tab', 'responsive overlay sidebar'] }, null, 2));
+  console.log(JSON.stringify({ run, checks: ['named unified sidebar', 'icon-only file actions with tooltips', 'navigation and document inspector', 'persistent embedded search', 'keyboard resizers', 'singleton central graph tab', 'responsive overlay sidebar'] }, null, 2));
 } finally {
   await app.close();
 }

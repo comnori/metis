@@ -1,6 +1,5 @@
 /** Keep native dialog focus containment; restore only when no destination took focus. */
-export function openDialog(node: HTMLDialogElement) {
-  const invoker = document.activeElement as HTMLElement | null;
+export function openDialog(node: HTMLDialogElement, invoker = document.activeElement as HTMLElement | null) {
   node.showModal();
   return () => {
     node.close();
@@ -8,8 +7,9 @@ export function openDialog(node: HTMLDialogElement) {
       if (document.querySelector('dialog[open]')) return;
       const active = document.activeElement;
       if (active && active !== document.body && active.isConnected && !node.contains(active)) return;
-      const usable = invoker?.isConnected && invoker.getClientRects().length && !invoker.closest('[hidden],[inert]') && !invoker.matches(':disabled');
-      const target = usable ? invoker : document.querySelector<HTMLElement>('[data-focus-home]');
+      const usable = (element: HTMLElement | null) => element?.isConnected && element.getClientRects().length && !element.closest('[hidden],[inert]') && !element.matches(':disabled');
+      const home = document.querySelector<HTMLElement>('[data-focus-home]');
+      const target = usable(invoker) ? invoker : usable(home) ? home : document.querySelector<HTMLElement>('[data-focus-navigation]');
       target?.focus();
     });
   };

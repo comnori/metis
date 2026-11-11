@@ -41,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-14, ubuntu-22.04]
+        os: [windows-2022, macos-15, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
@@ -56,7 +56,15 @@ jobs:
       - run: npm ci
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps chromium
+        run: |
+          # Hosted runners already provide Electron's libraries and Xvfb.
+          # Install dependencies only when the runtime check finds a missing one.
+          node -e "require('electron')"
+          electron_dependencies="$(ldd node_modules/electron/dist/electron)"
+          printf '%s\n' "$electron_dependencies"
+          if ! command -v xvfb-run >/dev/null || grep -q 'not found' <<< "$electron_dependencies"; then
+            npx playwright install-deps chromium
+          fi
       - name: Typecheck, unit tests and build
         run: npm run check
       - name: Development integration

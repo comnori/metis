@@ -4,6 +4,14 @@ import path from 'node:path';
 import os from 'node:os';
 import { analyze } from './index';
 const roots: string[] = [];
+test('imported Korean document paths retain resolvable preview links', async () => {
+  const root = await fixture();
+  await fs.mkdir(path.join(root, '한글--id'), { recursive: true });
+  await fs.writeFile(path.join(root, '한글--id/index.adoc'), '= 대상');
+  const result = await analyze(root, 'docs/main.adoc', '= Title\n\n.속성\n|===\n|이름 |예제\n|===\n\n== 제목\n\n* [x] 완료\n\nxref:../한글\\--id/index.adoc[DB 문서]');
+  expect(result.relations).toEqual(expect.arrayContaining([expect.objectContaining({ target: '../한글--id/index.adoc', state: 'resolved' })]));
+  expect(result.html).toContain('href="../한글--id/index.html"');
+});
 test('semantic references resolve actual anchors and saved target documents', async () => {
   const root = await fixture();
   const result = await analyze(root, 'main.adoc', '= Main\n:release:\n:product: Metis\n\n[[local]]\n== Local\n\n{product} <<local>> xref:shared/part.adoc#_shared_section[] <<missing>>\n\nifdef::absent[]\nxref:ghost.adoc[]\nendif::[]\n\n----\nxref:code.adoc[]\n----');
