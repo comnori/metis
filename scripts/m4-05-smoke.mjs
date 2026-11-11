@@ -29,6 +29,7 @@ try {
   await page.waitForFunction(() => window.getSelection()?.toString() === '!');
   assert.ok((await editor.textContent()).includes('Unsaved!'));
   await uiCommand(page, '탐색 앞으로'); await page.getByRole('heading', { name: 'b.adoc', exact: true }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.matches('.editor-panel:not([hidden]) .cm-content'));
   checks.push('filtered keyboard search opens source; back restores dirty source selection and forward returns to result');
   await page.keyboard.press('ControlOrMeta+Shift+f');
   assert.equal(await query.inputValue(), 'Needle'); assert.equal(await search.getByLabel('결과 경로 필터').inputValue(), 'b.adoc');
@@ -71,5 +72,5 @@ try {
   assert.equal(await palette.getByRole('option').getAttribute('aria-disabled'), 'true'); await page.keyboard.press('Escape');
   checks.push('changed historical buffer skips stale selection; new navigation clears forward history');
   await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
-} catch (error) { console.error('Completed:', checks); throw error; }
+} catch (error) { console.error('Completed:', checks); if (page) { console.error(await page.locator('body').innerText().catch(() => '')); await page.screenshot({ path: path.join(run, 'failed.png') }).catch(() => {}); } throw error; }
 finally { await app.close(); }
