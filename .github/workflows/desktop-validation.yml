@@ -56,7 +56,12 @@ jobs:
       - run: npm ci
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps chromium
+        run: |
+          # Avoid a stalled Azure mirror while retaining Ubuntu's signed packages.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' 'https://security.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          npx playwright install-deps chromium
       - name: Typecheck, unit tests and build
         run: npm run check
       - name: Development integration
