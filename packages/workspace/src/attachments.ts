@@ -37,6 +37,17 @@ export async function attachmentPath(root: string, relative: string): Promise<st
   return real;
 }
 interface Resource { scope: PathRequest; relativePath: string; group: string }
+async function sourceRelativePath(root: string, input: string): Promise<string | undefined> {
+  // File pickers may use /var, Windows short names, or an alias of the workspace.
+  // Find that root while preserving child components for attachmentPath's link checks.
+  let parent = path.dirname(input), relative = path.basename(input);
+  for (;;) {
+    if (path.relative(root, await fs.realpath(parent)) === '') return relative;
+    const next = path.dirname(parent);
+    if (next === parent) return undefined;
+    relative = `${path.basename(parent)}/${relative}`; parent = next;
+  }
+}
 export class Attachments {
   private resources = new Map<string, Resource>();
   constructor(private workspace: Workspace) {}
@@ -103,8 +114,8 @@ export class Attachments {
         if (source.path) {
           input = path.resolve(source.path); const stat = await fs.lstat(input);
           if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024 * 1024) throw new Error('1 GiB 이하의 일반 파일만 가져올 수 있습니다.');
-          const rel = path.relative(root, input).split(path.sep).join('/');
-          if (rel && !rel.startsWith('../') && !path.isAbsolute(rel)) {
+          const rel = await sourceRelativePath(root, input);
+          if (rel) {
             await attachmentPath(root, rel); this.workspace.analysisRoot(request); result.files.push({ relativePath: rel, kind: attachmentKind(input) }); continue;
           }
           name = path.basename(input);

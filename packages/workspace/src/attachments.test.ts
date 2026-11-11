@@ -37,6 +37,20 @@ test('resources stream byte ranges and expire on release or workspace switch', a
   const second = await service.register({ ...scope, action: 'register', targets: ['audio.wav'] });
   await workspace.open(folder); expect((await service.response(second.resources[0].url!, null)).status).toBe(404);
 });
+
+test('reuses files selected through a workspace alias without accepting links inside it', async () => {
+  const { root, folder, service, scope } = await setup();
+  const alias = path.join(root, 'workspace-alias'), outside = path.join(root, 'outside');
+  await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'external.png'), 'outside');
+  await fs.symlink(folder, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  await fs.symlink(outside, path.join(folder, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+  const result = await service.import({ ...scope, action: 'import', sources: [
+    { path: path.join(alias, 'note.adoc') }, { path: path.join(alias, 'linked', 'external.png') }
+  ] });
+  expect(result.files.map(file => file.relativePath)).toEqual(['note.adoc']);
+  expect(result.errors).toHaveLength(1);
+  expect(await fs.readdir(folder)).not.toContain('assets');
+});
 test('rejects remote, absolute, encoded escapes, missing files and junctions', async () => {
   const { root, folder, service, scope } = await setup();
   await fs.symlink(root, path.join(folder, 'outside'), process.platform === 'win32' ? 'junction' : 'dir');
