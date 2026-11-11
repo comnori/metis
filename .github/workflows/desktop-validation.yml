@@ -59,6 +59,7 @@ jobs:
         run: |
           # Hosted runners already provide Electron's libraries and Xvfb.
           # Install dependencies only when the runtime check finds a missing one.
+          node -e "require('electron')"
           electron_dependencies="$(ldd node_modules/electron/dist/electron)"
           printf '%s\n' "$electron_dependencies"
           if ! command -v xvfb-run >/dev/null || grep -q 'not found' <<< "$electron_dependencies"; then
