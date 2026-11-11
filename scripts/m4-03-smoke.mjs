@@ -16,10 +16,10 @@ try {
   await hint.getByRole('button', { name: '작성 방법과 예제 보기' }).click(); const guide = page.getByRole('tabpanel', { name: '도움말', exact: true });
   await guide.getByText('AsciiDoc 시작 예제', { exact: true }).click(); await guide.locator('pre').waitFor();
   assert.deepEqual(await readdir(fixture), []); await guide.getByRole('button', { name: '닫기', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: '명령 팔레트', exact: true }).evaluate(e => e === document.activeElement), true);
+  await page.waitForFunction(() => document.querySelector('button[aria-label="명령 팔레트"]') === document.activeElement);
   await hint.getByRole('button', { name: '안내 건너뛰기' }).click(); await hint.waitFor({ state: 'hidden' }); await page.reload(); await hint.waitFor({ state: 'hidden' });
   await uiCommand(page, '시작 안내'); await guide.getByRole('button', { name: '시작 화면 안내 다시 표시' }).click(); await guide.getByRole('button', { name: '닫기', exact: true }).click(); await hint.waitFor();
-  checks.push('guide and read-only sample create no files; Escape restores focus; skip persists and palette can restore hints');
+  checks.push('guide and read-only sample create no files; closing help restores focus; skip persists and palette can restore hints');
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '이 폴더에 문서 만들기' }).click();
   const create = page.getByRole('dialog', { name: '새 문서' }); await create.getByLabel('문서 이름 (.adoc)').fill('first.adoc'); await create.getByRole('button', { name: '만들기', exact: true }).click();

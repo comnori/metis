@@ -57,11 +57,13 @@ jobs:
       - name: Linux desktop dependencies
         if: runner.os == 'Linux'
         run: |
-          # Avoid a stalled Azure mirror while retaining Ubuntu's signed packages.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' 'https://security.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          # Hosted runners already provide Electron's libraries and Xvfb.
+          # Install dependencies only when the runtime check finds a missing one.
+          electron_dependencies="$(ldd node_modules/electron/dist/electron)"
+          printf '%s\n' "$electron_dependencies"
+          if ! command -v xvfb-run >/dev/null || grep -q 'not found' <<< "$electron_dependencies"; then
+            npx playwright install-deps chromium
           fi
-          npx playwright install-deps chromium
       - name: Typecheck, unit tests and build
         run: npm run check
       - name: Development integration
