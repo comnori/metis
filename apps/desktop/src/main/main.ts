@@ -9,6 +9,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, protocol, safeStorage } fro
 import { PluginHost } from './plugin-host';
 import { PluginAuth } from './plugin-auth';
 import { AuthDeepLinks, authProtocol, splitDeepLinkArguments } from './auth-deep-links';
+import { launchArguments } from './launch-arguments';
 import type { PluginRequest } from '@metis/contracts';
 import { PreviewWorker } from './preview-worker';
 import { youtubeAppId, youtubeReferer } from './youtube-player';
@@ -33,9 +34,7 @@ const receiveArguments = (args: string[], cwd: string) => {
   for (const link of separated.links) authDeepLinks.receive(link);
   if (separated.args.length && !launchQueue.add(separated.args, cwd)) console.error('CLI queue full; retry after pending requests complete.');
 };
-const appArgument = process.defaultApp ? process.argv.findIndex((value, index) => index > 0 && !value.startsWith('-') && path.resolve(value) === path.resolve(app.getAppPath())) : 0;
-const launchArgs = process.argv.slice(appArgument > 0 ? appArgument + 1 : 1);
-while (launchArgs[0]?.match(/^--(?:inspect(?:-brk)?|remote-debugging-port)=/)) launchArgs.shift();
+const launchArgs = launchArguments(process.argv, !!process.defaultApp, app.getAppPath());
 const ownsLock = app.requestSingleInstanceLock({ args: launchArgs, cwd: process.cwd() });
 let launchWindow: BrowserWindow | undefined;
 if (!ownsLock) app.quit();
