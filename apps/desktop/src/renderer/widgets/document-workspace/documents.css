@@ -1,4 +1,4 @@
-.documents { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.documents { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; container-type: inline-size; }
 .documents[hidden], .editor-panel[hidden] { display: none; }
 .tabs { display: flex; min-height: 38px; overflow: auto; border-bottom: 1px solid var(--border); background: var(--surface); padding-left: 5px; }
 .tabs > div { display: flex; flex-shrink: 0; border-right: 1px solid var(--border); }
@@ -36,8 +36,8 @@
 .editor-panel { display: flex; flex: 1; min-height: 0; }
 .editor-panel .source { width: 100%; }
 
-@media (max-width: 720px) {
-  .document-title { align-items: flex-start; flex-direction: column; gap: 7px; }
-  .document-toolbar { width: 100%; }
+@container (max-width: 760px) {
+  .document-title { align-items: stretch; flex-direction: column; gap: 7px; }
+  .document-toolbar { width: 100%; flex-wrap: wrap; }
   .view-switcher { margin-left: auto; }
 }
