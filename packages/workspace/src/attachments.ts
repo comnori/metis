@@ -40,11 +40,11 @@ interface Resource { scope: PathRequest; relativePath: string; group: string }
 async function sourceRelativePath(root: string, input: string): Promise<string | undefined> {
   // File pickers may use /var, Windows short names, or an alias of the workspace.
   // Find that root while preserving child components for attachmentPath's link checks.
-  let parent = path.dirname(input), relative = path.basename(input);
+  let parent = path.dirname(input), relative = path.basename(input), match: string | undefined;
   for (;;) {
-    if (path.relative(root, await fs.realpath(parent)) === '') return relative;
+    if (path.relative(root, await fs.realpath(parent)) === '') match = relative;
     const next = path.dirname(parent);
-    if (next === parent) return undefined;
+    if (next === parent) return match;
     relative = `${path.basename(parent)}/${relative}`; parent = next;
   }
 }

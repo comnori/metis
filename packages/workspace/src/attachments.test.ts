@@ -44,11 +44,13 @@ test('reuses files selected through a workspace alias without accepting links in
   await fs.mkdir(outside); await fs.writeFile(path.join(outside, 'external.png'), 'outside');
   await fs.symlink(folder, alias, process.platform === 'win32' ? 'junction' : 'dir');
   await fs.symlink(outside, path.join(folder, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+  await fs.symlink(folder, path.join(folder, 'loop'), process.platform === 'win32' ? 'junction' : 'dir');
   const result = await service.import({ ...scope, action: 'import', sources: [
-    { path: path.join(alias, 'note.adoc') }, { path: path.join(alias, 'linked', 'external.png') }
+    { path: path.join(alias, 'note.adoc') }, { path: path.join(alias, 'linked', 'external.png') },
+    { path: path.join(alias, 'loop', 'note.adoc') }, { path: path.join(folder, 'loop', 'note.adoc') }
   ] });
   expect(result.files.map(file => file.relativePath)).toEqual(['note.adoc']);
-  expect(result.errors).toHaveLength(1);
+  expect(result.errors).toHaveLength(3);
   expect(await fs.readdir(folder)).not.toContain('assets');
 });
 test('rejects remote, absolute, encoded escapes, missing files and junctions', async () => {
