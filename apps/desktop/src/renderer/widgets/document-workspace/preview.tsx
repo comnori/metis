@@ -1,28 +1,98 @@
+import type { AttachmentResource, ExtensionRuntime, ExtensionPreviewResult, PreviewAsset } from '@metis/contracts';
 import { createPortal } from 'react-dom';
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import DOMPurify from 'dompurify';
 import { OperationStatus } from '../../shared/ui/operation-status';
 import type { Analysis, OutlineEntry, Session } from '@metis/contracts';
 import { defaultAppearance, previewThemeStyles, type WorkspaceAppearanceV1 } from '../../shared/model/appearance';
 import { asciidoctorPreviewCss, highlightPreviewCss } from './preview-theme';
-import { renderMermaidPreview, type MermaidPreviewResult } from './mermaid-preview';
-export function safePreview(html: string, appearance: WorkspaceAppearanceV1 = defaultAppearance, diagrams: ReadonlyMap<string, string> = new Map()): string {
-  const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'video', 'audio', 'img', 'link', 'meta', 'base'], FORBID_ATTR: ['style', 'src', 'srcset', 'target', 'download'] });
-  const fragment = new DOMParser().parseFromString(clean, 'text/html');
-  for (const blocked of fragment.querySelectorAll('script,style,iframe,object,embed,form,input,button,video,audio,img,link,meta,base')) blocked.remove();
+import { mountPreviewAssets } from '../../shared/lib/preview-assets';
+import { d2ExportData, d2PreviewStyles, followD2BoardLink, installD2DownloadMenus } from '../../shared/lib/d2-preview';
+import type { D2ExportFormat } from '@metis/contracts';
+import { validWebLink, type Relation } from '@metis/contracts';
+import { followPreviewFragment, previewDestination, previewRelations } from './preview-links';
+import { previewPdfHtml } from './preview-pdf';
+import { alignPreviewToLine } from './preview-position';
+import { installDiagramNavigation, type DiagramViews } from '../../shared/lib/diagram-navigation';
+import { DiagramFullscreen, fullscreenDiagram, type FullscreenDiagram } from './diagram-fullscreen';
+type PreviewAppearance = Pick<WorkspaceAppearanceV1, 'previewTheme' | 'documentFontSize' | 'documentFontFamily'>;
+export function safePreview(html: string, appearance: PreviewAppearance = defaultAppearance, assets: ReadonlyMap<string, PreviewAsset> = new Map(), resources: AttachmentResource[] = [], relations: Relation[] = []): string {
+  // Explain removed embeds without allowing any source-provided iframe into the preview.
+  const source = document.createElement('template'); source.innerHTML = html;
+  for (const frame of source.content.querySelectorAll('iframe')) {
+    const note = document.createElement('p'); note.className = 'metis-embed-unavailable';
+    note.textContent = '영상을 표시할 수 없습니다. 확장 관리에서 YouTube 영상의 활성화 상태와 video::영상ID[youtube] 문법을 확인하세요.';
+    frame.replaceWith(note);
+  }
+  html = source.innerHTML;
+  const clean = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'link', 'meta', 'base'], FORBID_ATTR: ['style', 'srcset', 'target', 'download'] });
+  const template = document.createElement('template'); template.innerHTML = clean;
+  const fragment = template.content;
+  for (const blocked of fragment.querySelectorAll('script,style,iframe,object,embed,form,input,button,link,meta,base')) blocked.remove();
   for (const element of fragment.querySelectorAll('*')) for (const attribute of [...element.attributes]) {
-    if (attribute.name.toLowerCase().startsWith('on') || ['style', 'src', 'srcset', 'target', 'download'].includes(attribute.name.toLowerCase())) element.removeAttribute(attribute.name);
+    if (attribute.name.toLowerCase().startsWith('on') || ['style', 'srcset', 'target', 'download'].includes(attribute.name.toLowerCase())) element.removeAttribute(attribute.name);
   }
-  for (const anchor of fragment.querySelectorAll('a[href]')) if (!anchor.getAttribute('href')?.startsWith('#')) anchor.removeAttribute('href');
-  for (const target of fragment.querySelectorAll<HTMLElement>('[data-mermaid-svg]')) {
-    const svg = diagrams.get(target.dataset.mermaidSvg ?? '');
-    if (svg) target.innerHTML = svg;
+  for (const element of fragment.querySelectorAll('*')) {
+    element.removeAttribute('data-attachment-token');
+    element.removeAttribute('data-attachment-target');
+    element.removeAttribute('data-web-url');
+    element.removeAttribute('data-document-target');
+    for (const name of ['data-d2-export', 'data-d2-asset', 'data-d2-index', 'data-d2-board-link', 'data-d2-menu-toggle', 'data-d2-menu']) element.removeAttribute(name);
+    element.removeAttribute('autoplay');
+    for (const attr of ['src', 'poster']) {
+      const target = element.getAttribute(attr); if (target === null) continue;
+      const resource = resources.find(r => r.target === target);
+      const allowed = attr === 'poster' || element.tagName === 'IMG' ? resource?.kind === 'image' : ['AUDIO', 'VIDEO'].includes(element.tagName) ? resource?.kind === 'audio' || resource?.kind === 'video' : false;
+      if (allowed && resource?.url && /^metis-attachment:\/\/resource\/[\w-]+$/.test(resource.url)) element.setAttribute(attr, resource.url + (/^#t=[0-9.,]+$/.test(target.slice(target.indexOf('#'))) ? target.slice(target.indexOf('#')) : ''));
+      else {
+        element.removeAttribute(attr);
+        if (attr === 'src' && ['IMG', 'AUDIO', 'VIDEO'].includes(element.tagName)) element.setAttribute('hidden', '');
+        const note = fragment.ownerDocument.createElement('span'); note.className = 'attachment-error';
+        note.textContent = '첨부: ' + target + ' — ' + (resource?.error ?? '표시할 수 없는 로컬 미디어입니다.'); element.after(note);
+      }
+      if (attr === 'src' && resource?.token && ['IMG', 'AUDIO', 'VIDEO'].includes(element.tagName)) {
+        element.setAttribute('data-attachment-token', resource.token);
+        const link = fragment.ownerDocument.createElement('a'); link.textContent = '첨부 열기'; link.className = 'metis-attachment-link'; link.href = '#'; link.dataset.attachmentToken = resource.token; element.after(link);
+      }
+    }
+    if (['AUDIO', 'VIDEO'].includes(element.tagName)) { element.setAttribute('controls', ''); element.setAttribute('preload', 'metadata'); }
   }
-  const metisCss = `body{font-size:${appearance.documentFontSize}px;font-family:${appearance.documentFontFamily};line-height:1.7;padding:24px;overflow-wrap:anywhere}pre{overflow-x:auto;white-space:pre}code,pre{font-family:inherit}.metis-mermaid{margin:1.25em 0;text-align:center}.metis-mermaid .title{font-weight:600;margin-bottom:.5em}.metis-mermaid-output svg{max-width:100%;height:auto}.metis-mermaid-error{border-left:4px solid #b42318;padding:.75em;text-align:left}${previewThemeStyles[appearance.previewTheme]}`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'"><style data-theme="asciidoctor">${asciidoctorPreviewCss}</style><style data-theme="highlight">${highlightPreviewCss}</style><style data-theme="metis">${metisCss}</style></head><body>${fragment.body.innerHTML}</body></html>`;
+  for (const anchor of fragment.querySelectorAll('a[href]')) {
+    const target = anchor.getAttribute('href')!; if (target.startsWith('#')) continue;
+    if (validWebLink(target)) { anchor.setAttribute('href', '#'); anchor.setAttribute('data-web-url', target); anchor.setAttribute('title', '시스템 브라우저에서 열기: ' + target); continue; }
+    const matches = previewRelations(target, relations);
+    if (matches.length) {
+      anchor.removeAttribute('href');
+      if (previewDestination(target, relations)) { anchor.setAttribute('href', '#'); anchor.setAttribute('data-document-target', target); }
+      else { const note = fragment.ownerDocument.createElement('span'); note.textContent = ' (참조 위치를 확인하지 못했습니다. 관계 탐색에서 확인하세요.)'; anchor.after(note); }
+      continue;
+    }
+    const resource = resources.find(r => r.target === target); anchor.removeAttribute('href');
+    if (resource?.token) { anchor.setAttribute('href', '#'); anchor.setAttribute('data-attachment-token', resource.token); }
+    else { const note = fragment.ownerDocument.createElement('span'); note.textContent = ' (' + (resource?.error ?? '외부 링크는 지원하지 않습니다.') + ')'; anchor.after(note); }
+  }
+  const hasVideo = mountPreviewAssets(fragment, assets);
+  const hasD2 = [...assets.values()].some(asset => asset.kind === 'd2');
+  const metisCss = `body{color-scheme:${appearance.previewTheme === 'dark' ? 'dark' : 'light'};font-size:${appearance.documentFontSize}px;font-family:${appearance.documentFontFamily};line-height:1.7;padding:24px;overflow-wrap:anywhere}pre{overflow-x:auto;white-space:pre}code,pre{font-family:inherit}.metis-attachment-link{font-size:.8em;margin-left:.5em}.attachment-error{color:#9b3526;white-space:normal}img,video{max-width:100%}.metis-youtube iframe{border:0;max-width:100%;aspect-ratio:16/9}.metis-embed-unavailable{border-left:4px solid #777;padding:.75em}.metis-mermaid{margin:1.25em 0;text-align:center}.metis-mermaid .title{font-weight:600;margin-bottom:.5em}.metis-mermaid-output svg{max-width:100%;height:auto}.metis-mermaid-error{border-left:4px solid #b42318;padding:.75em;text-align:left}${previewThemeStyles[appearance.previewTheme]}`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; connect-src 'none'; img-src metis-attachment: ${hasD2 ? 'data: https:' : ''}; font-src ${hasD2 ? 'data:' : "'none'"}; media-src metis-attachment:; frame-src ${hasVideo ? 'https://www.youtube-nocookie.com' : "'none'"}; form-action 'none'; base-uri 'none'"><style data-theme="asciidoctor">${asciidoctorPreviewCss}</style><style data-theme="highlight">${highlightPreviewCss}</style><style data-theme="metis">${metisCss}${d2PreviewStyles}</style></head><body>${template.innerHTML}</body></html>`;
+}
+export function showAttachmentErrors(doc: Document) {
+  for (const media of doc.querySelectorAll<HTMLImageElement | HTMLMediaElement>('img,audio,video')) {
+    let reported = false;
+    const failed = () => {
+      if (reported || !media.getAttribute('src')) return;
+      reported = true;
+      const note = doc.createElement('span'); note.className = 'attachment-error';
+      note.textContent = '첨부를 표시하거나 재생할 수 없습니다. 파일 형식과 코덱을 확인하거나 첨부 열기를 사용하세요.'; media.after(note);
+    };
+    media.addEventListener('error', failed, { once: true });
+    // A small or invalid resource can finish before the iframe load callback.
+    if ('error' in media ? media.error : media.complete && !media.naturalWidth) failed();
+  }
 }
 export interface PreviewPosition { text?: string; html?: string; x: number; y: number; outline: number }
-export function Preview({ session, relativePath, text, mode, navigate, onAnalysis, position, editorLine, reveal, appearance, stylesheetVersion, inspector = true, inspectorTarget }: { session: Session; relativePath: string; text: string; mode: 'source' | 'split' | 'preview'; navigate(entry: OutlineEntry): void; onAnalysis(value: Analysis): void; position: PreviewPosition; editorLine(): number; reveal(): void; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; inspector?: boolean; inspectorTarget?: HTMLElement | null }) {
+export const previewDebounceMs = defaultAppearance.previewDelayMs;
+export function Preview({ extensions, session, relativePath, text, mode, navigate, onAnalysis, position, editorLine, reveal, appearance, stylesheetVersion, active = true, inspector = true, inspectorTarget }: { extensions: ExtensionRuntime; session: Session; relativePath: string; text: string; mode: 'source' | 'split' | 'preview'; navigate(entry: OutlineEntry): void; onAnalysis(value: Analysis): void; position: PreviewPosition; editorLine(): number; reveal(): void; appearance: WorkspaceAppearanceV1; stylesheetVersion: number; active?: boolean; inspector?: boolean; inspectorTarget?: HTMLElement | null }) {
   const [analysis, setAnalysis] = useState<Analysis>();
   const [basis, setBasis] = useState<string>();
   const current = !!analysis && basis === text;
@@ -31,13 +101,35 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
   const removeScroll = useRef<() => void>(() => {});
   useEffect(() => () => removeScroll.current(), []);
   const [status, setStatus] = useState('해석 준비 중');
+  const [failedAttachment, setFailedAttachment] = useState<string>();
   const [retry, setRetry] = useState(0);
   const [running, setRunning] = useState(true);
   const [customCss, setCustomCss] = useState('');
-  const [mermaidPreview, setMermaidPreview] = useState<MermaidPreviewResult>();
+  const [exportingPdf, setExportingPdf] = useState(false), [pdfStatus, setPdfStatus] = useState('');
+  const [fullscreen, setFullscreen] = useState<FullscreenDiagram>();
+  const extensionVersion = useSyncExternalStore(listener => extensions.subscribe(listener), extensions.version);
+  const previewVisible = active && mode !== 'source';
+  // Interaction preferences do not invalidate the rendered document.
+  const previewAppearance = useMemo(() => ({ previewTheme: appearance.previewTheme, documentFontSize: appearance.documentFontSize, documentFontFamily: appearance.documentFontFamily }), [appearance.previewTheme, appearance.documentFontSize, appearance.documentFontFamily]);
+  const previewCache = useRef<{ analysis: Analysis; theme: string; version: number; value: ExtensionPreviewResult }>(undefined);
+  const [preparedPreview, setPreparedPreview] = useState<{ analysis: Analysis; appearance: PreviewAppearance; version: number; value: ExtensionPreviewResult; srcDoc: string; id: string }>();
+  const extensionPreview = preparedPreview?.value;
+  const srcDoc = preparedPreview?.srcDoc ?? '';
+  const previewCurrent = previewVisible && current && !running && preparedPreview?.analysis === analysis && preparedPreview?.appearance === previewAppearance && preparedPreview?.version === extensionVersion;
+  const releaseResources = useRef<() => void>(() => {});
+  useEffect(() => () => releaseResources.current(), []);
   const frame = useRef<HTMLIFrameElement>(null);
-  const visibleMode = useRef(mode); visibleMode.current = mode; const navigationReady = useRef(false); navigationReady.current = current && !running;
-  useLayoutEffect(() => { if (mode !== 'source' && !pendingId.current) frame.current?.contentWindow?.scrollTo(position.x, position.y); }, [mode]);
+  const closeFullscreen = () => {
+    const invoker = fullscreen?.invoker; setFullscreen(undefined);
+    requestAnimationFrame(() => { if (document.querySelector('dialog[open]')) return; (invoker?.isConnected ? invoker : frame.current)?.focus({ preventScroll: true }); });
+  };
+  useEffect(() => { if (!previewVisible) setFullscreen(undefined); }, [previewVisible]);
+  const loadedPreview = useRef<string>(undefined);
+  const diagramViews = useRef<DiagramViews>(new Map());
+  const manualAlignment = useRef(false);
+  const cursorLine = editorLine(), latestEditorLine = useRef(editorLine); latestEditorLine.current = editorLine;
+  const navigationReady = useRef(false); navigationReady.current = previewCurrent;
+  useLayoutEffect(() => { if (previewVisible) { restore.current = { x: position.x, y: position.y }; if (!pendingId.current) frame.current?.contentWindow?.scrollTo(position.x, position.y); } }, [previewVisible]);
   const accepted = useRef(onAnalysis); accepted.current = onAnalysis;
   const go = (source: { relativePath: string; line: number }) => { if (current && !running) navigate({ ...source, id: '', title: '', level: 1 }); };
   useEffect(() => {
@@ -50,33 +142,69 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
         setRunning(false);
         if (result.ok) {
           const unchanged = position.text === text && position.html === result.value.html;
-          if (!unchanged) { position.x = 0; position.y = 0; position.outline = 0; }
+          if (!unchanged) position.outline = 0;
           restore.current = { x: position.x, y: position.y };
           position.text = text; position.html = result.value.html;
           setBasis(text); setAnalysis(result.value); accepted.current(result.value);
           setStatus('현재 문서: 편집 내용 · 포함·참조 파일: 저장본');
         } else { setBasis(undefined); setStatus(result.error.message); }
       } catch { if (alive) { setBasis(undefined); setRunning(false); setStatus('해석에 실패했습니다. 원문 편집은 계속할 수 있습니다.'); } }
-    }, 350);
+    }, appearance.previewDelayMs);
     return () => { alive = false; clearTimeout(timer); };
-  }, [session.workspaceId, session.workspaceEpoch, relativePath, text, retry]);
+  }, [session.workspaceId, session.workspaceEpoch, relativePath, text, retry, appearance.previewDelayMs]);
   // Labels depend on accepted analysis, not keystrokes or preview status updates.
   const outlineLabels = useMemo(() => analysis?.outline.map(entry => new DOMParser().parseFromString(DOMPurify.sanitize(entry.title, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] }), 'text/html').body.textContent) ?? [], [analysis?.outline]);
   useEffect(() => {
-    let alive = true;
-    setMermaidPreview(undefined);
-    if (!analysis) return;
-    void renderMermaidPreview(analysis.html, appearance.previewTheme).then(value => {
-      if (!alive) return;
-      setMermaidPreview(value);
-      if (value.diagnostics.length) accepted.current({ ...analysis, diagnostics: [...analysis.diagnostics, ...value.diagnostics] });
-    });
-    return () => { alive = false; };
-  }, [analysis, appearance.previewTheme]);
-  const displayAnalysis = analysis && mermaidPreview?.diagnostics.length ? { ...analysis, diagnostics: [...analysis.diagnostics, ...mermaidPreview.diagnostics] } : analysis;
-  const srcDoc = useMemo(() => safePreview(mermaidPreview?.html ?? analysis?.html ?? '', appearance, mermaidPreview?.diagrams), [analysis, mermaidPreview, appearance]);
+    if (!previewVisible) {
+      setPreparedPreview(undefined);
+      removeScroll.current();
+      releaseResources.current(); releaseResources.current = () => {};
+      return;
+    }
+    if (!analysis || !current || running) return;
+    const controller = new AbortController();
+    setFailedAttachment(undefined);
+    const scope = { requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath };
+    // Keep the previous frame intact until extensions and attachments are both ready.
+    void (async () => {
+      let group: string | undefined, committed = false;
+      const release = () => { if (group) void window.metis.attachments({ ...scope, action: 'release', group }).catch(() => {}); };
+      try {
+        const cached = previewCache.current;
+        const value = cached?.analysis === analysis && cached.theme === previewAppearance.previewTheme && cached.version === extensionVersion ? cached.value : await extensions.renderPreview({ html: analysis.html, theme: previewAppearance.previewTheme, cacheScope: `${session.workspaceId}:${session.workspaceEpoch}`, readD2File: async path => {
+          if (controller.signal.aborted) throw Error('Cancelled');
+          const result = await window.metis.readD2File({ ...scope, requestId: crypto.randomUUID(), relativePath: path });
+          if (controller.signal.aborted) throw Error('Cancelled');
+          if (!result.ok) throw Error(`${path}: ${result.error.message}`);
+          return result.value;
+        } }, controller.signal);
+        if (!value || controller.signal.aborted) return;
+        previewCache.current = { analysis, theme: previewAppearance.previewTheme, version: extensionVersion, value };
+        const dom = new DOMParser().parseFromString(DOMPurify.sanitize(value.html, { FORBID_TAGS: ['iframe', 'object', 'embed'] }), 'text/html');
+        const targets = [...new Set([...dom.querySelectorAll('img[src],audio[src],video[src],video[poster],a[href]')].flatMap(e => ['src', 'poster', 'href'].map(a => e.getAttribute(a)).filter((v): v is string => !!v && !v.startsWith('#') && !(e.tagName === 'A' && (validWebLink(v) || previewRelations(v, analysis.relations).length > 0)))))].slice(0, 1000);
+        let resources: AttachmentResource[] = [];
+        if (targets.length) {
+          const result = await window.metis.attachments({ ...scope, action: 'register', targets });
+          if (result.ok) { group = result.value.group; resources = result.value.resources; }
+          else if (!controller.signal.aborted) setStatus(result.error.message);
+        }
+        if (controller.signal.aborted) return;
+        const srcDoc = safePreview(value.html, previewAppearance, value.assets, resources, analysis.relations);
+        const previousWindow = frame.current?.contentWindow;
+        restore.current = previousWindow ? { x: previousWindow.scrollX, y: previousWindow.scrollY } : { x: position.x, y: position.y };
+        releaseResources.current(); releaseResources.current = release; committed = true;
+        loadedPreview.current = undefined;
+        setPreparedPreview({ analysis, appearance: previewAppearance, version: extensionVersion, value, srcDoc, id: scope.requestId });
+        accepted.current({ ...analysis, diagnostics: [...analysis.diagnostics, ...value.diagnostics] });
+      } catch { if (!controller.signal.aborted) setStatus('미리보기를 준비하지 못했습니다. 새로 고침으로 다시 시도하세요.'); }
+      finally { if (!committed) release(); }
+    })();
+    return () => controller.abort();
+  }, [previewVisible, analysis, current, running, previewAppearance, extensions, extensionVersion, session.workspaceId, session.workspaceEpoch, relativePath]);
+  const displayAnalysis = analysis && preparedPreview?.analysis === analysis && extensionPreview?.diagnostics.length ? { ...analysis, diagnostics: [...analysis.diagnostics, ...extensionPreview.diagnostics] } : analysis;
   useEffect(() => {
     let alive = true;
+    if (!previewVisible) return;
     if (!appearance.customCssEnabled) { setCustomCss(''); return; }
     void window.metis.readPreviewStylesheet({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch }).then(result => {
       if (!alive) return;
@@ -84,40 +212,92 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
       else { setCustomCss(''); setStatus(result.error.message); }
     });
     return () => { alive = false; };
-  }, [session.workspaceId, session.workspaceEpoch, analysis, retry, appearance.customCssEnabled, stylesheetVersion]);
+  }, [previewVisible, session.workspaceId, session.workspaceEpoch, retry, appearance.customCssEnabled, stylesheetVersion]);
   const scrollToId = (id: string) => {
     const matches = [...(frame.current?.contentDocument?.querySelectorAll('[id]') ?? [])].filter(e => e.id === id);
     if (!id || matches.length !== 1) { setStatus('미리보기에서 유일한 절 위치를 확인하지 못했습니다. 원문과 목차를 직접 확인하세요.'); return; }
     matches[0].scrollIntoView({ block: 'start' });
   };
-  useEffect(() => { if (mode !== 'source' && pendingId.current && current && !running) { const id = pendingId.current; pendingId.current = undefined; requestAnimationFrame(() => scrollToId(id)); } }, [mode, analysis, running]);
-  useEffect(() => { if (analysis && outline.current) outline.current.scrollTop = position.outline; if (analysis) frame.current?.contentWindow?.scrollTo(restore.current.x, restore.current.y); }, [analysis]);
+  useEffect(() => { if (analysis && outline.current) outline.current.scrollTop = position.outline; }, [analysis]);
   const jump = (entry: OutlineEntry) => {
     if (!current || running) return;
+    manualAlignment.current = false;
     pendingId.current = entry.id;
     if (entry.relativePath === relativePath && mode !== 'preview') navigate(entry);
-    if (mode === 'source') reveal(); else { pendingId.current = undefined; scrollToId(entry.id); }
+    if (mode === 'source') reveal(); else if (previewCurrent && loadedPreview.current === preparedPreview?.id) { pendingId.current = undefined; scrollToId(entry.id); }
   };
   const alignEditor = () => {
     if (!current || running) return;
-    const line = editorLine();
-    const entry = analysis?.outline.filter(e => e.relativePath === relativePath && e.line <= line).sort((a, b) => b.line - a.line)[0];
-    if (!entry) { setStatus('현재 편집 줄에 대응하는 절을 확인하지 못했습니다. 목차에서 절을 선택하세요.'); return; }
-    pendingId.current = entry.id;
-    if (mode === 'source') reveal(); else { pendingId.current = undefined; scrollToId(entry.id); }
+    pendingId.current = undefined;
+    if (mode === 'source') { manualAlignment.current = true; reveal(); }
+    else if (previewCurrent && loadedPreview.current === preparedPreview?.id && frame.current?.contentDocument && analysis) alignPreviewToLine(frame.current.contentDocument, analysis, relativePath, latestEditorLine.current());
   };
+  useEffect(() => {
+    if (appearance.previewAutoAlign && mode === 'split' && previewCurrent && !pendingId.current && loadedPreview.current === preparedPreview?.id && frame.current?.contentDocument && analysis) alignPreviewToLine(frame.current.contentDocument, analysis, relativePath, cursorLine);
+  }, [appearance.previewAutoAlign, cursorLine, mode, previewCurrent, preparedPreview?.id]);
   const loaded = () => {
     removeScroll.current(); const win = frame.current?.contentWindow, doc = frame.current?.contentDocument; if (!win || !doc) return;
+    loadedPreview.current = preparedPreview?.id;
+    const removeD2Menus = installD2DownloadMenus(doc);
+    const removeDiagramNavigation = installDiagramNavigation(doc, diagramViews.current, { onFullscreen: svg => setFullscreen(fullscreenDiagram(svg)) });
+    const openAttachment = async (token: string, reveal = false) => {
+      const result = await window.metis.attachments({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath, action: 'open', token, reveal });
+      const error = result.ok ? result.value.errors.join(' · ') : result.error.message;
+      if (error) {
+        setStatus(error);
+        if (!reveal) setFailedAttachment(token);
+      }
+    };
+    doc.addEventListener('click', event => {
+      const target = event.target as Element;
+      const d2Export = target.closest<HTMLElement>('button[data-d2-export]');
+      if (d2Export) {
+        event.preventDefault();
+        const asset = extensionPreview?.assets.get(d2Export.dataset.d2Asset ?? '');
+        if (asset) {
+          d2Export.setAttribute('disabled', '');
+          void window.metis.exportD2({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, ...d2ExportData(asset, Number(d2Export.dataset.d2Index), d2Export.dataset.d2Export as D2ExportFormat) })
+            .then(result => { setStatus(result.ok ? result.value.saved ? 'D2 다이어그램을 저장했습니다.' : 'D2 저장을 취소했습니다.' : result.error.message); })
+            .catch(() => setStatus('D2 다이어그램을 저장하지 못했습니다.')).finally(() => d2Export.removeAttribute('disabled'));
+        }
+        return;
+      }
+      const boardLink = target.closest('a[data-d2-board-link]');
+      if (boardLink) { event.preventDefault(); followD2BoardLink(boardLink); return; }
+      const documentLink = target.closest?.('a[data-document-target]');
+      if (documentLink) { event.preventDefault(); const destination = previewDestination(documentLink.getAttribute('data-document-target')!, preparedPreview?.analysis.relations ?? []); if (destination && navigationReady.current) go(destination); return; }
+      const webLink = target.closest?.('a[data-web-url]');
+      if (webLink) {
+        event.preventDefault();
+        void window.metis.openWebLink({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, url: webLink.getAttribute('data-web-url')! }).then(result => { if (!result.ok) setStatus(result.error.message); }).catch(() => setStatus('브라우저를 열지 못했습니다.'));
+        return;
+      }
+      const link = target.closest?.('a[data-attachment-token]');
+      if (link) { event.preventDefault(); void openAttachment(link.getAttribute('data-attachment-token')!).catch(() => setStatus('첨부파일을 열지 못했습니다.')); return; }
+      followPreviewFragment(event, doc);
+    });
+    showAttachmentErrors(doc);
     let custom = doc.querySelector<HTMLStyleElement>('style[data-metis-custom]');
     if (!custom) { custom = doc.createElement('style'); custom.dataset.metisCustom = ''; doc.head.append(custom); }
     custom.textContent = customCss;
     win.scrollTo(restore.current.x, restore.current.y);
-    const save = () => { if (visibleMode.current === 'source' || !navigationReady.current) return; position.x = win.scrollX; position.y = win.scrollY; };
-    win.addEventListener('scroll', save, { passive: true }); removeScroll.current = () => win.removeEventListener('scroll', save);
-    if (pendingId.current && mode !== 'source' && current && !running) { const id = pendingId.current; pendingId.current = undefined; scrollToId(id); }
+    const save = () => { position.x = win.scrollX; position.y = win.scrollY; };
+    win.addEventListener('scroll', save, { passive: true }); removeScroll.current = () => { win.removeEventListener('scroll', save); removeD2Menus(); removeDiagramNavigation(); };
+    if (pendingId.current && previewCurrent) { const id = pendingId.current; pendingId.current = undefined; scrollToId(id); }
+    else if ((appearance.previewAutoAlign || manualAlignment.current) && previewCurrent && analysis) alignPreviewToLine(doc, analysis, relativePath, latestEditorLine.current());
+    manualAlignment.current = false;
   };
   useEffect(() => { const custom = frame.current?.contentDocument?.querySelector<HTMLStyleElement>('style[data-metis-custom]'); if (custom) custom.textContent = customCss; }, [customCss]);
-  const inspectorContent = <aside className="outline" ref={outline} onScroll={e => { position.outline = e.currentTarget.scrollTop; }}><h2>목차</h2><OperationStatus task="문서 해석" phase={running ? 'running' : current ? 'complete' : 'failed'} message={status} next={!running && !current ? '원문을 확인하고 미리보기 새로 고침을 누르세요. 원문 편집은 계속할 수 있습니다.' : undefined} /><button disabled={!current || running} onClick={alignEditor}>편집 위치와 맞추기</button><p>절 시작 위치로 맞춥니다. 본문 내부의 세부 위치는 동기화하지 않습니다. 원문이 바뀌면 이전 미리보기 위치를 초기화합니다.</p><button onClick={() => setRetry(value => value + 1)}>미리보기 새로 고침</button>
+  async function downloadPdf() {
+    if (!previewCurrent || !preparedPreview || exportingPdf) return;
+    setExportingPdf(true); setPdfStatus('다이어그램·이미지를 준비하고 있습니다.');
+    try {
+      const result = await window.metis.exportPreviewPdf({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath, html: previewPdfHtml(preparedPreview.srcDoc, customCss) });
+      setPdfStatus(result.ok ? result.value.saved ? 'PDF를 저장했습니다.' : 'PDF 저장을 취소했습니다.' : result.error.message);
+    } catch { setPdfStatus('PDF를 저장하지 못했습니다. 미리보기와 이미지 상태를 확인하고 다시 시도하세요.'); }
+    finally { setExportingPdf(false); }
+  }
+  const inspectorContent = <aside className="outline" ref={outline} onScroll={e => { position.outline = e.currentTarget.scrollTop; }}><h2>목차</h2><OperationStatus task="문서 해석" phase={running ? 'running' : current ? 'complete' : 'failed'} message={status} next={!running && !current ? '원문을 확인하고 미리보기 새로 고침을 누르세요. 원문 편집은 계속할 수 있습니다.' : undefined} /><button disabled={!current || running} onClick={alignEditor}>편집 위치와 맞추기</button><p>{appearance.previewAutoAlign ? '편집 커서가 있는 문단·다이어그램으로 자동 이동합니다.' : '자동 맞춤이 꺼져 있습니다. 버튼을 누르면 편집 위치로 이동합니다.'} 설정의 미리보기에서 자동 맞춤을 변경할 수 있습니다.</p><button onClick={() => setRetry(value => value + 1)}>미리보기 새로 고침</button>
       {analysis?.outline.map((entry, index) => <div key={`${entry.id}-${index}`}><button className="outline-item" style={{ paddingLeft: 8 + Math.min(entry.level, 6) * 8 }} disabled={!current || running} onClick={() => jump(entry)}>{outlineLabels[index]}<small>{entry.relativePath}:{entry.line}</small></button>{entry.relativePath === relativePath && <button disabled={!current || running} onClick={() => navigate(entry)}>원문 위치 열기: {entry.line}</button>}{entry.relativePath !== relativePath && <button disabled={!current || running} onClick={() => navigate(entry)}>포함 원문 열기: {entry.relativePath}</button>}</div>)}
       {analysis?.outline.length === 0 && <p>절이 없습니다.</p>}
       {analysis && <section aria-label="관계 탐색"><h3>참조 · 포함</h3>
@@ -134,10 +314,11 @@ export function Preview({ session, relativePath, text, mode, navigate, onAnalysi
         <p>자동완성: xref:, include::, &lt;&lt;, {'{'} 뒤에서 Ctrl+Space. 후보는 최근 성공한 해석 기준이며, 다른 문서의 앵커는 현재 참조한 문서에서 제공합니다.</p>
       </details>}
       {!!displayAnalysis?.diagnostics.length && <section aria-label="해석 진단"><h3>진단</h3>{displayAnalysis.diagnostics.map((d, index) => <p key={index}>{d.relativePath}:{d.line} — {d.message}</p>)}</section>}
-      <p>이미지·외부 링크는 이 미리보기에서 차단됩니다.</p>
+      <p>로컬 미디어와 첨부 링크를 지원합니다. YouTube 영상은 확장 관리에서 활성화할 수 있습니다.</p>
     </aside>;
   return <div className={`analysis analysis-${mode}`}>
+    {fullscreen && <DiagramFullscreen diagram={fullscreen} close={closeFullscreen} />}
     {inspectorTarget ? createPortal(inspectorContent, inspectorTarget) : inspector && inspectorContent}
-    <div className="preview-surface" hidden={mode === 'source'}><p role="status">{running || !current ? '미리보기 갱신 대기 · 이전 내용일 수 있습니다.' : '현재 편집 기준 · 포함·참조 파일은 해석 시점 저장본'}</p><iframe ref={frame} onLoad={loaded} title="AsciiDoc 미리보기" sandbox="allow-same-origin" srcDoc={srcDoc} /></div>
+    <div className="preview-surface" hidden={!previewVisible}><p role="status">{!previewCurrent ? '미리보기 갱신 대기 · 이전 내용일 수 있습니다.' : '현재 편집 기준 · 포함·참조 파일은 해석 시점 저장본'}</p><div className="preview-toolbar"><button disabled={!previewCurrent || exportingPdf} onClick={() => void downloadPdf()}>{exportingPdf ? 'PDF 준비 중…' : 'PDF 다운로드'}</button><span role="status">{pdfStatus}</span></div><span role="status">{failedAttachment && <button onClick={() => { void window.metis.attachments({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch, relativePath, action: 'open', token: failedAttachment, reveal: true }).then(result => { if (!result.ok) setStatus(result.error.message); else setFailedAttachment(undefined); }).catch(() => setStatus('파일 위치를 열지 못했습니다.')); }}>파일 위치 열기</button>}</span>{previewVisible && preparedPreview && <iframe key={preparedPreview.id} ref={frame} onLoad={loaded} title="AsciiDoc 미리보기" sandbox={srcDoc.includes('frame-src https://www.youtube-nocookie.com') ? "allow-same-origin allow-scripts allow-presentation" : "allow-same-origin"} allow="fullscreen" srcDoc={srcDoc} />}</div>
   </div>;
 }

@@ -1,0 +1,129 @@
+= D2 기본 확장
+
+D2는 Mermaid처럼 기본 활성화된 번들 확장이다. **확장 관리 → D2 다이어그램**에서 비활성화·제거·다시 추가할 수 있다. 비활성화하면 원문 코드를 표시하며 설정은 재시작 후에도 유지된다. PPT/PPTX 변환은 제공하지 않는다.
+
+== 작성
+
+``/d2`` 자동완성으로 다음 블록을 삽입한다.
+
+[source,asciidoc]
+------
+.서비스 구성
+[d2,layout=elk,theme=300]
+----
+direction: right
+client: 사용자
+api: API
+database: 저장소 {shape: cylinder}
+client -> api: 요청
+api -> database: 조회
+----
+------
+
+블록 제목과 앵커를 지원한다. ``include::``로 포함한 AsciiDoc 안에서도 D2를 사용할 수 있으며, D2 오류는 해당 원문 경로와 줄에 표시된다. 한 블록의 문법 오류가 다른 다이어그램을 중단하지 않는다.
+
+== 지원 범위
+
+[cols="1,3",options="header"]
+|===
+| 기능 | 지원 방식
+| 언어 | 도형·연결·컨테이너·스타일·변수·클래스·glob·그리드·범례 등 공식 엔진 문법
+| 레이아웃 | ``dagre``, ``elk``, ``tala``
+| 특수 도형 | 시퀀스, SQL 테이블, UML 클래스, Markdown, LaTeX, 코드 구문 강조
+| 외관 | 테마, 다크 테마, 스케치, 패딩, 배율, 중앙 정렬, 사용자 TTF 폰트
+| 구성 | 로컬 D2 import·spread, layers·scenarios·steps, 특정 보드 선택
+| 상호작용 | 툴팁, 시스템 브라우저 웹 링크, 같은 블록의 보드 링크
+| 이미지 | 로컬 SVG/PNG/JPEG/GIF/WebP, HTTPS 아이콘·이미지, base64 이미지
+| 애니메이션 | 연결선 CSS 애니메이션과 다중 보드 애니메이션 SVG
+| 저장 | SVG, PNG, PDF, 다중 보드 GIF, ASCII 텍스트
+|===
+
+공식 ``@d2lang/d2`` 0.1.34를 번들하며 렌더링에 외부 서버나 별도 D2 CLI 설치를 요구하지 않는다. 원격 이미지·아이콘은 인터넷 연결이 필요하다. 문법과 레이아웃 제약은 https://d2lang.com/[D2 공식 문서] 및 https://github.com/d2lang/d2/tree/master/d2js/js[D2.js API]를 따른다. 향후 엔진 버전의 신규 문법, CLI watch·자동 포맷 명령과 임의 CLI 플러그인은 이 확장에 포함되지 않는다.
+
+== 블록 옵션
+
+옵션은 ``[d2,이름=값]``으로 지정한다. D2 본문의 ``vars.d2-config``도 전달하며, 블록 옵션이 우선한다.
+
+[cols="1,2,2",options="header"]
+|===
+| 옵션 | 값 | 설명
+| ``layout`` | ``dagre``, ``elk``, ``tala`` | 배치 엔진
+| ``theme``, ``dark-theme`` | 테마 ID | 일반·다크 테마
+| ``sketch``, ``center``, ``appendix`` | ``true`` 또는 ``false`` | 손그림, 중앙 정렬, 링크·툴팁 부록
+| ``pad`` | 0~1000 | 여백 픽셀
+| ``scale`` | 0.05~10 | 출력 배율. 기본 1, 미리보기에서는 화면에 맞춤
+| ``target`` | ``layers.detail`` 등 | 렌더링할 보드 경로
+| ``animate-interval`` | 100~60000 | 보드 전환 간격(밀리초). 기본 대상 ``*``
+| ``ascii`` | ``true`` | SVG 대신 텍스트 출력
+| ``ascii-mode`` | ``standard`` 또는 ``extended`` | ASCII 또는 유니코드 선 문자
+| ``font-regular``, ``font-bold``, ``font-italic``, ``font-semibold`` | 상대 ``.ttf`` 경로 | 사용자 글꼴
+|===
+
+테마를 별도로 지정하지 않은 블록은 앱의 다크 미리보기에서 다크 테마를 사용한다. 기본 그림과 단일 보드는 접기 헤더 없이 바로 표시한다. 다중 보드의 추가 그림은 **상세 · 이름**, **시나리오 · 이름**, **단계 · 이름**을 눌러 펼칠 수 있다.
+
+== 가져오기와 이미지
+
+[source,asciidoc]
+------
+[d2,layout=elk,font-regular=fonts/Regular.ttf]
+----
+...@diagrams/shared
+service: 서비스 {icon: images/service.svg}
+service -> database
+----
+------
+
+D2 import는 확장자를 생략할 수 있다. 기준 디렉터리는 블록이 있는 AsciiDoc 파일의 디렉터리이며, 중첩 import의 경로는 공식 D2 해석 규칙을 따른다. 포함 파일 내부의 블록도 포함 파일의 디렉터리를 기준으로 한다. 의존 파일은 저장본을 읽으므로 변경 후 미리보기 새로 고침을 실행한다.
+
+작업 공간 밖, 숨김 디렉터리, 심볼릭 링크·junction에는 접근하지 않는다. 의존 파일은 개별 8 MiB, 문서당 64개·합계 32 MiB까지 읽는다.
+
+== 다중 보드와 저장
+
+[source,asciidoc]
+------
+[d2,animate-interval=1000]
+----
+client -> api
+steps: {
+  query: {api -> database}
+  response: {database -> api -> client}
+}
+----
+------
+
+다이어그램 **우측 상단의 다운로드 아이콘**을 누르고 **SVG**, **PNG**, **PDF** 중 하나를 선택하면 저장 위치를 고를 수 있다. SVG는 벡터·링크·CSS 애니메이션을 유지한다. PNG/PDF는 선택한 보드의 정적 출력이며 화면 비율에 맞춰 저장한다. PDF에는 다이어그램 한 장을 넣는다. 다중 보드 메뉴에는 기본 그림과 하위 보드를 1초 간격으로 순환하는 **GIF**가 추가된다. ``ascii=true`` 블록에는 **TXT**를 제공한다. 애니메이션 SVG는 **SVG**를 선택해 보드 전환을 보존한다.
+
+아이콘은 Tab으로 접근하며 Enter·Space·위아래 화살표로 메뉴를 열 수 있다. 메뉴에서는 위아래 화살표·Home·End로 형식을 고르고 Enter로 선택한다. Esc는 아이콘으로 초점을 돌려주고, 메뉴 밖을 클릭하거나 Tab으로 이동하면 메뉴가 닫힌다.
+
+PNG/GIF 래스터 출력은 긴 변 최대 2400픽셀로 제한한다. 복잡하거나 큰 그림은 SVG로 저장한다. 원격 이미지 로딩에 실패하면 내보내기에도 누락될 수 있으므로 재현 가능한 파일에는 로컬 이미지를 권장한다.
+
+== 처리 경계
+
+[mermaid]
+----
+flowchart LR
+    A[AsciiDoc d2 블록] --> B[출처·옵션·원문 유지]
+    B --> C[기본 확장]
+    C --> D[공식 D2 Worker와 WASM]
+    W[작업 공간 의존 파일] -->|요청 경로만 읽기| D
+    D --> E[보드별 SVG 또는 ASCII]
+    E --> F[호스트 SVG 정제]
+    F --> P[스크립트 없는 미리보기]
+    F --> S[사용자가 선택한 파일로 저장]
+----
+
+D2 전용 SVG 정제는 이미지·폰트·MathML·텍스트·CSS 애니메이션을 보존하고 스크립트·이벤트 핸들러·폼·외부 프레임·능동 SVG 애니메이션 요소를 제거한다. 문서 스크립트는 CSP와 sandbox로 계속 차단한다. PNG/PDF/GIF 저장은 Node.js·preload 접근이 없는 숨김 창에서 처리한다.
+
+편집·테마 변경·확장 비활성화 시 오래된 결과를 폐기하고 D2 worker를 종료한다. 문서당 D2 블록 100개, 블록당 보드 100개, 보드 SVG 4 MiB·블록 출력 합계 16 MiB 제한이 있다. 확장 실행의 기존 15초 제한을 넘는 문서는 블록이나 보드를 나누고 ``target``을 지정한다.
+
+== 검증
+
+[source,sh]
+----
+npm run check
+npm run test:d2
+npm run test:preview-features
+npm run test:m2-05
+----
+
+``test:d2``는 실제 Electron과 번들 D2 엔진으로 세 레이아웃, 풍부한 레이블, 로컬 import·아이콘, HTTPS 아이콘, 보드·애니메이션·ASCII, 저장 파일 형식, 오류 격리, Mermaid 공존과 확장 설정 복원을 확인한다. HTTPS 테스트 응답은 고정해 외부 서비스 상태에 의존하지 않는다.

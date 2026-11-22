@@ -36,7 +36,7 @@ try {
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   await uiCommand(page, '문서 근거 탐색');
-  const modal = page.getByRole('dialog', { name: '문서 근거 탐색' });
+  const modal = page.getByRole('tabpanel', { name: '문서 근거 탐색' });
   await modal.getByRole('button', { name: '맥락 구성', exact: true }).click(); await modal.getByRole('status').filter({ hasText: '맥락 구성을 완료했습니다.' }).waitFor();
   const ai = modal.getByRole('region', { name: 'AI 의미 검색', exact: true }), result = ai.getByRole('region', { name: 'AI 조회 결과' });
   if (compatible) await ai.getByLabel('서버 API', { exact: true }).selectOption('openai-compatible');

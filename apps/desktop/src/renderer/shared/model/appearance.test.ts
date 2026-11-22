@@ -21,4 +21,18 @@ describe('workspace appearance v1', () => {
     expect(new Set(Object.values(previewThemeStyles)).size).toBe(3);
     expect(previewThemeStyles.dark).toContain('#1e2422'); expect(previewThemeStyles.sepia).toContain('#f7f0df');
   });
+  it('migrates older settings and bounds the persisted preview delay', () => {
+    const { previewDelayMs: _, ...legacy } = { ...defaultAppearance, previewTheme: 'sepia', documentFontSize: 20 };
+    expect(readAppearance(JSON.stringify(legacy))).toMatchObject({ previewDelayMs: 800, previewTheme: 'sepia', documentFontSize: 20 });
+    expect(readAppearance(JSON.stringify({ ...defaultAppearance, previewDelayMs: 1700 })).previewDelayMs).toBe(1700);
+    for (const [input, expected] of [[0, 200], [9999, 5000], [849, 800], [NaN, 800], [Infinity, 800]]) {
+      expect(normalizeAppearance({ ...defaultAppearance, previewDelayMs: input }).previewDelayMs).toBe(expected);
+    }
+  });
+  it('defaults automatic alignment on for older workspaces and persists explicit opt-out', () => {
+    const { previewAutoAlign: _, ...legacy } = defaultAppearance;
+    expect(readAppearance(JSON.stringify(legacy)).previewAutoAlign).toBe(true);
+    expect(readAppearance(JSON.stringify({ ...legacy, previewAutoAlign: false })).previewAutoAlign).toBe(false);
+    expect(readAppearance(JSON.stringify({ ...legacy, previewAutoAlign: 'false' })).previewAutoAlign).toBe(true);
+  });
 });

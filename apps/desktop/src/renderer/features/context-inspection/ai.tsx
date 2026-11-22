@@ -1,8 +1,10 @@
+import { useReviewApi, useBundleCurrent } from '../../shared/model/workspace-tabs';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { AiResult, ContextBundle, Session, SourceLocation } from '@metis/contracts';
 import { aiCorpus } from '@metis/knowledge-index/ai-corpus';
 
 export function AiSearch({ bundle, session, source }: { bundle: ContextBundle; session: Session; source(where: SourceLocation): React.ReactNode }) {
+  const api = useReviewApi(), bundleCurrent = useBundleCurrent(bundle.createdAt);
   const corpus = useMemo(() => aiCorpus(bundle), [bundle]);
   const [provider, setProvider] = useState<'ollama' | 'openai-compatible'>('ollama');
   const [separate, setSeparate] = useState(false), [embeddingPort, setEmbeddingPort] = useState('11434'), [embeddingProvider, setEmbeddingProvider] = useState<'ollama' | 'openai-compatible'>('ollama');
@@ -10,13 +12,14 @@ export function AiSearch({ bundle, session, source }: { bundle: ContextBundle; s
   const [approved, setApproved] = useState(false), [busy, setBusy] = useState(false), [result, setResult] = useState<AiResult>(), [message, setMessage] = useState('모델과 전송할 발췌를 확인하세요.');
   const serial = useRef(0);
   const scope = () => ({ requestId: crypto.randomUUID(), workspaceId: session.workspaceId, workspaceEpoch: session.workspaceEpoch });
-  useEffect(() => () => { serial.current++; void window.metis.cancelAi(scope()).catch(() => {}); }, []);
+  useEffect(() => () => { serial.current++; void api.cancelAi(scope()).catch(() => {}); }, []);
   function change(action: () => void) { serial.current++; setApproved(false); setResult(undefined); action(); }
-  function cancel() { serial.current++; setBusy(false); setApproved(false); setResult(undefined); setMessage('AI 요청을 취소했습니다. 이미 전달한 정보는 회수할 수 없습니다.'); void window.metis.cancelAi(scope()).catch(() => {}); }
+  async function cancel() { const token = ++serial.current; setApproved(false); setResult(undefined); setMessage('AI 요청 취소 중…'); try { const result = await api.cancelAi(scope()); if (token !== serial.current) return; setMessage(result.ok ? 'AI 요청을 취소했습니다. 이미 전달한 정보는 회수할 수 없습니다.' : result.error.message); } catch { if (token === serial.current) setMessage('취소 결과를 확인하지 못했습니다.'); } finally { if (token === serial.current) setBusy(false); } }
+  useEffect(() => { if (!bundleCurrent) setApproved(false); }, [bundleCurrent]);
   async function run() {
     const token = ++serial.current; setBusy(true); setResult(undefined); setApproved(false); setMessage('임베딩 검색과 근거 기반 응답을 요청하고 있습니다.');
     try {
-      const response = await window.metis.queryAi({ ...scope(), bundleId: bundle.createdAt, query, port: Number(port), provider, ...(separate ? { embeddingPort: Number(embeddingPort), embeddingProvider } : {}), embeddingModel: embedding, chatModel: chat, approved: true });
+      const response = await api.queryAi({ ...scope(), bundleId: bundle.createdAt, query, port: Number(port), provider, ...(separate ? { embeddingPort: Number(embeddingPort), embeddingProvider } : {}), embeddingModel: embedding, chatModel: chat, approved: true });
       if (token !== serial.current) return;
       if (response.ok) { setResult(response.value); setMessage('AI 조회 완료 · 원본 변경 없음'); } else setMessage(response.error.message);
     } catch { if (token === serial.current) setMessage('AI 응답을 받지 못했습니다.'); }
@@ -38,7 +41,7 @@ export function AiSearch({ bundle, session, source }: { bundle: ContextBundle; s
       {corpus.truncated && <p>긴 발췌는 2,000자로 잘랐습니다.</p>}{corpus.error && <p>{corpus.error}</p>}
       <details><summary>전송 발췌 전체 검토</summary>{corpus.evidence.map(item => <article key={item.id}><p>{item.id} · {item.documentPath} · {item.relativePath}:{item.line} · {item.kind}</p><pre>{item.text}</pre></article>)}</details>
       <label><input type="checkbox" checked={approved} onChange={e => setApproved(e.target.checked)} />이 질의·발췌·모델·서버로 이번 요청 전송을 승인합니다.</label>
-      <button disabled={!approved || !query.trim() || !embedding || !chat || !!corpus.error} onClick={run}>승인한 범위로 AI 조회</button>
+      <button disabled={!bundleCurrent || !approved || !query.trim() || !embedding || !chat || !!corpus.error} onClick={run}>승인한 범위로 AI 조회</button>
     </fieldset>{busy && <button onClick={cancel}>AI 요청 취소</button>}<p role="status">{message}</p>
     {result && <section aria-label="AI 조회 결과"><h4>{result.status === 'insufficient' ? '근거 부족 · 답변 보류' : result.status === 'conflict' ? 'AI 추론 · 상충 후보' : 'AI 추론 · 인용 검토 필요'}</h4>
       {result.warnings.map(warning => <p key={warning}>{warning}</p>)}

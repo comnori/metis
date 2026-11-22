@@ -13,7 +13,7 @@ try {
   const page = await app.firstWindow(); page.setDefaultTimeout(15000); page.on('dialog', d => { void d.dismiss().catch(() => {}); });
   await app.evaluate(({ BrowserWindow, dialog }, fixture) => { BrowserWindow.getAllWindows()[0].showInactive(); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
-  await page.getByRole('button', { name: '오른쪽 사이드바', exact: true }).click();
+  await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   await page.locator('.outline .operation-status[data-phase="complete"]').waitFor();
   await app.evaluate(({ ipcMain }) => {
     let calls = 0;
@@ -41,11 +41,11 @@ try {
   await app.evaluate(({ ipcMain }) => { ipcMain.removeHandler('metis:save-document'); ipcMain.handle('metis:save-document', (_, request) => ({ ok: false, requestId: request.requestId, error: { code: 'PERMISSION_DENIED', message: '검사용 저장 실패', retryable: true } })); });
   await page.getByRole('button', { name: '저장', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '검사용 저장 실패' }).waitFor(); await page.locator('footer').filter({ hasText: '작업 실패' }).waitFor();
-  await page.getByText('편집 보존·복구 작업', { exact: true }).click(); await page.getByRole('button', { name: '복구 사본', exact: true }).waitFor();
+  await page.getByText('편집 보존·복구 작업', { exact: true }).click(); await page.getByRole('main').getByRole('button', { name: '복구 사본', exact: true }).waitFor();
   await page.getByRole('button', { name: '오류 안내 닫기', exact: true }).click(); assert.ok((await editor.textContent()).includes('Unsaved')); assert.equal(await readFile(path.join(fixture, 'note.adoc'), 'utf8'), original);
   checks.push('save failure takes priority over success status and exposes recovery actions without losing buffer or writing disk');
   await uiCommand(page, '변경 제안 검토');
-  const proposal = page.getByRole('dialog', { name: '변경 제안 검토' });
+  const proposal = page.getByRole('tabpanel', { name: '변경 제안' });
   await proposal.getByRole('region', { name: '변경 범위와 복구' }).waitFor(); await proposal.getByRole('button', { name: '전체 거부하고 닫기', exact: true }).click();
   await writeFile(path.join(fixture, 'note.adoc'), '= External\n\nChanged');
   await uiCommand(page, '외부 변경 확인'); await page.getByRole('button', { name: '변경 비교', exact: true }).click();

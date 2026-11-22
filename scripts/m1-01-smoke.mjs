@@ -11,11 +11,11 @@ const env = { ...process.env, METIS_USER_DATA: path.join(run, 'profile') }; dele
 const packaged = process.argv[2];
 const launch = () => electron.launch({ executablePath: packaged || executablePath, args: packaged ? ['--smoke'] : [path.join(root, 'apps/desktop'), '--smoke'], env });
 const openWorkspaceSwitcher = async page => {
-  const switcher = page.getByLabel('Metis 작업 공간 전환');
+  const switcher = page.getByLabel('작업 공간 전환');
   if (!(await switcher.evaluate(element => element.parentElement?.hasAttribute('open')))) await switcher.click();
 };
 const closeWorkspaceSwitcher = async page => {
-  const switcher = page.getByLabel('Metis 작업 공간 전환');
+  const switcher = page.getByLabel('작업 공간 전환');
   if (await switcher.evaluate(element => element.parentElement?.hasAttribute('open'))) await switcher.click();
 };
 let app = await launch(); const checks = [];
@@ -47,6 +47,7 @@ try {
   await uiCommand(page, '폴더 닫기');
   await page.getByRole('heading', { name: '문서가 있는 곳에서 시작하세요.' }).waitFor();
   await rename(created, path.join(parent, '옮긴 공간'));
+  await openWorkspaceSwitcher(page);
   await page.getByRole('button', { name: '한글 공간', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '찾을 수 없습니다' }).waitFor();
   await openWorkspaceSwitcher(page);

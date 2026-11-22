@@ -1,0 +1,208 @@
+= Metis 다이어그램 샘플
+:toc:
+:toc-title: 목차
+:sectnums:
+
+이 문서는 Mermaid와 D2 기본 확장을 확인하기 위한 예제입니다.
+메티스에서 문서를 열고 *분할* 또는 *미리보기*를 선택하세요.
+외부 이미지나 별도 파일 없이 사용할 수 있습니다.
+
+[TIP]
+====
+*확장 관리*에서 Mermaid와 D2를 끄면 원문 코드가 나타납니다.
+다시 켜면 다이어그램으로 표시됩니다. D2 다이어그램 우측 상단의 다운로드 아이콘에서 파일 형식을 선택할 수 있습니다.
+====
+
+== Mermaid: 문서 처리 흐름
+
+.메티스에서 다이어그램 보기
+[mermaid]
+----
+flowchart LR
+    A[AsciiDoc 작성] --> B[문서 해석]
+    B --> C{활성 확장}
+    C --> D[Mermaid]
+    C --> E[D2]
+    D --> F[미리보기]
+    E --> F
+----
+
+== D2: 서비스 구성
+
+도형과 연결선을 정의하면 레이아웃 엔진이 위치를 계산합니다.
+
+.사용자 요청과 데이터 저장
+[d2,layout=elk,pad=24]
+----
+direction: right
+user: 사용자 {shape: person}
+web: 웹 화면
+api: API 서버
+database: 데이터베이스 {shape: cylinder}
+user -> web: 접속
+web -> api: 요청
+api -> database: 조회
+database -> api: 결과
+----
+
+== D2: 그룹·변수·클래스
+
+공통 색상과 스타일을 재사용하고 관련 요소를 컨테이너로 묶을 수 있습니다.
+
+.주문 처리 서비스
+[d2,layout=dagre,pad=24]
+----
+direction: right
+vars: {service-color: "#D9EDE6"}
+classes: {
+  service: {style.fill: ${service-color}}
+}
+platform: 서비스 영역 {
+  orders: 주문 API {class: service}
+  payments: 결제 API {class: service}
+  orders -> payments: 결제 요청
+}
+queue: 이벤트 큐 {shape: queue}
+platform.payments -> queue: 결제 완료
+----
+
+== D2: 테마와 스케치
+
+.아이디어에서 완료까지
+[d2,layout=tala,theme=300,sketch=true,pad=24]
+----
+direction: right
+idea: 아이디어 {shape: oval}
+draft: 초안
+review: 검토 {shape: diamond}
+done: 완료 {shape: oval}
+idea -> draft -> review -> done
+review -> draft: 보완
+----
+
+== D2: 시퀀스 다이어그램
+
+.로그인 요청
+[d2,pad=24]
+----
+shape: sequence_diagram
+browser: 브라우저
+server: API 서버
+database: 사용자 DB
+browser -> server: 로그인 요청
+server -> database: 사용자 조회
+database -> server: 사용자 정보
+server -> browser: 로그인 결과
+----
+
+== D2: 데이터 모델
+
+.사용자와 주문
+[d2,layout=elk,pad=24]
+----
+direction: right
+users: 사용자 {
+  shape: sql_table
+  id: integer {constraint: primary_key}
+  name: varchar
+  email: varchar
+}
+orders: 주문 {
+  shape: sql_table
+  id: integer {constraint: primary_key}
+  user_id: integer {constraint: foreign_key}
+  total: decimal
+}
+users.id -> orders.user_id
+----
+
+== D2: Markdown·수식·코드
+
+.다이어그램 안의 풍부한 레이블
+[d2,pad=24]
+----
+direction: right
+note: |md
+  # 계산 예제
+  **설명**과 `코드`를 함께 표시합니다.
+|
+formula: |latex
+  \frac{x^2}{2}
+|
+snippet: |js
+  const result = x ** 2 / 2;
+|
+note -> formula -> snippet
+----
+
+== D2: 여러 보드
+
+기본 그림은 바로 표시됩니다. 아래의 *상세 · 이름* 또는 *단계 · 이름*을 눌러 추가 구성을 확인하세요.
+다중 보드의 다운로드 메뉴에서는 *GIF*도 선택할 수 있습니다.
+
+.전체 구성과 상세 보기
+[d2,pad=24]
+----
+direction: right
+client: 클라이언트
+api: API
+client -> api: 요청
+api.link: layers.detail
+api.tooltip: 클릭하면 상세 보드를 펼칩니다.
+layers: {
+  detail: {
+    direction: right
+    api: API 서버
+    cache: 캐시
+    database: DB {shape: cylinder}
+    api -> cache: 먼저 확인
+    api -> database: 필요할 때 조회
+  }
+}
+steps: {
+  response: {api -> client: 응답}
+}
+----
+
+== D2: 애니메이션
+
+1초 간격으로 단계가 전환됩니다. 다운로드 메뉴에서 *SVG*를 선택하면 보드 전환 애니메이션을 유지할 수 있습니다.
+
+.요청이 처리되는 단계
+[d2,animate-interval=1000,pad=24]
+----
+direction: right
+client: 클라이언트
+api: API 서버
+database: DB {shape: cylinder}
+client -> api: 요청
+steps: {
+  query: {api -> database: 조회}
+  response: {database -> api: 결과}
+  complete: {api -> client: 응답}
+}
+----
+
+== D2: ASCII 출력
+
+텍스트 다이어그램은 다운로드 메뉴에서 *TXT*를 선택해 내보낼 수 있습니다.
+
+[d2,ascii=true,ascii-mode=extended]
+----
+direction: right
+Input -> Process -> Output
+----
+
+== 저장 형식
+
+[cols="1,3",options="header"]
+|===
+| 형식 | 용도
+| SVG | 벡터 그림, 링크와 CSS 애니메이션 유지
+| PNG | 일반 이미지로 공유
+| PDF | 선택한 보드를 한 장으로 저장
+| GIF | 여러 보드를 순환하는 이미지
+| TXT | ASCII 모드의 텍스트 저장
+|===
+
+PPT/PPTX 변환은 제공하지 않습니다.

@@ -1,0 +1,82 @@
+= Mermaid·D2·YouTube 미리보기 확장
+
+**확장 관리**에서 켜거나 끄면 열린 문서에 바로 적용된다. 설정은 앱 재시작 후에도 유지된다.
+
+[cols="1,1,1",options="header"]
+|===
+| 확장 | 기본 상태 | 비활성화 시
+| Mermaid 다이어그램 | 활성 | 다이어그램 원문 코드 표시
+| D2 다이어그램 | 활성 | 다이어그램 원문 코드 표시
+| YouTube 영상 | 비활성 | 활성화 안내 표시, 플레이어 연결 없음
+|===
+
+== 문법
+
+D2는 ``[d2]`` 블록과 ``/d2`` 자동완성을 사용한다. 별도 CLI 설치 없이 동작한다. 레이아웃·테마·가져오기·다중 보드·저장 옵션은 link:d2.adoc[D2 사용 안내]를 참고한다.
+
+Mermaid는 기존 블록을 그대로 사용한다. ``/mermaid`` 자동완성으로 삽입할 수 있다.
+
+[source,asciidoc]
+------
+.문서 처리
+[mermaid]
+----
+flowchart LR
+    A[AsciiDoc] --> B[미리보기]
+----
+------
+
+YouTube는 https://docs.asciidoctor.org/asciidoc/latest/macros/audio-and-video/#vimeo-and-youtube-videos[AsciiDoc 표준 video 매크로]를 사용한다. ``/youtube``로 틀을 삽입하고 ``VIDEO_ID``를 영상 URL의 11자리 ID로 바꾼다.
+
+[source,asciidoc]
+----
+.영상 예제
+video::rPQoq7ThGAU[youtube,width=640,height=360,start=5,end=20]
+----
+
+제목, ``width``, ``height``, ``start``, ``end``를 지원한다. 시간은 초 단위 정수다. 속성 치환과 포함 문서는 Asciidoctor가 먼저 처리한다. 자동 재생·재생목록·Vimeo는 이 확장에서 지원하지 않는다. 비공개·임베드 제한·지역 제한 영상이나 네트워크 오류는 YouTube 플레이어에서 재생할 수 없을 수 있다.
+
+== 처리와 수명주기
+
+[mermaid]
+----
+flowchart LR
+    Source[AsciiDoc 원문] --> Parser[Asciidoctor 해석]
+    Parser --> HTML[코드 블록·표준 영상 HTML]
+    Manager[확장 관리와 저장된 설정] --> Runtime[활성 확장의 preview 등록]
+    HTML --> Runtime
+    Runtime --> Mermaid[Mermaid SVG]
+    Runtime --> D2[D2 Worker·WASM]
+    Runtime --> YouTube[YouTube 영상 ID·표시 옵션]
+    Mermaid --> Host[호스트 정제와 미리보기 구성]
+    D2 --> Host
+    YouTube --> Host
+    Host --> Preview[문서 미리보기]
+----
+
+번들 확장은 ``api.preview(id, render)``로 변환기를 등록한다. 입력은 HTML·테마·작업 공간 범위의 D2 의존 파일 읽기 함수이며 출력은 HTML·진단·형식이 정해진 SVG/D2 보드/YouTube 리소스다. 호스트가 SVG를 정제하고 검증된 영상 ID로 iframe을 생성한다. 다이어그램 파서는 확장이 꺼져도 원문 코드와 출처 위치를 유지한다. Mermaid와 D2 라이브러리는 해당 블록이 있을 때 불러온다.
+
+비활성화·제거는 등록을 해제하고 진행 중인 변환을 취소한다. 편집·테마·확장 상태가 바뀌면 오래된 비동기 결과는 폐기한다. 변환 예외·잘못된 출력·15초 시간 초과는 해당 확장만 실패 상태로 전환한다. Mermaid 문법 오류는 원문과 진단으로 표시하고 다른 다이어그램은 계속 처리한다. 제거 후 다시 추가한 확장은 비활성 상태로 시작한다.
+
+== 외부 영상과 문서 격리
+
+문서에서 제공한 iframe·스크립트·이벤트 속성은 제거한다. YouTube 확장은 허용된 ``/embed/영상ID`` 형태에서 ID와 지원 옵션만 추출한다. 호스트가 ``youtube-nocookie.com`` 플레이어를 생성하고 자동 재생은 요청하지 않는다. D2는 HTTPS 이미지·아이콘과 포함된 이미지·폰트를 허용하며, 일반 웹 링크는 기존 시스템 브라우저 열기 경로를 사용한다. 일반 AsciiDoc 원격 미디어의 차단 정책은 유지한다.
+
+문서의 CSP는 계속 ``script-src 'none'``을 적용한다. YouTube가 있을 때만 프레임 로딩과 하위 플레이어 스크립트 실행에 필요한 sandbox 권한을 추가한다. 플레이어에는 Node.js·Metis IPC·팝업·상위 화면 탐색 권한이 없다. 확장을 끄거나 제거하면 플레이어도 제거된다.
+
+로컬 파일에서 실행되는 데스크톱 플레이어는 https://developers.google.com/youtube/terms/required-minimum-functionality#api-client-identity-and-credentials[YouTube의 클라이언트 식별 요구사항]에 따라 앱 식별자 ``comnori.metis``를 Referer로 전달한다. 해당 앱 창의 YouTube 임베드 프레임 요청에만 적용하며 문서 경로나 본문은 포함하지 않는다.
+
+== 검증
+
+[source,sh]
+----
+npm run check
+npm run test:preview-features
+npm run test:d2
+npm run test:m2-05
+npm run test:attachments
+----
+
+미리보기 GUI 테스트는 외부 플레이어 응답을 대체해 확장 전환·상태 복원·문서 스크립트 차단과 하위 플레이어 스크립트 실행을 재현 가능하게 확인한다. 실제 YouTube 서비스의 영상 재생 가능 여부는 별도 네트워크 검증 대상이다.
+
+2026-10-23 Windows 검증: 타입 검사·단위 테스트 245개·실행 도구 테스트 54개·빌드 통과. 미리보기 확장, 기존 문서 개요, 첨부파일 GUI 회귀도 통과했다. 공개 YouTube 데모 영상 ``M7lc1UVf-VE``의 실제 로딩과 재생 시작(``readyState=4``, ``paused=false``, 재생 시간 증가), 앱 Referer 전송을 확인했다.

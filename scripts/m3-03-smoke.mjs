@@ -23,7 +23,7 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\n\nUnsaved body');
   await page.keyboard.press('ControlOrMeta+Shift+P'); const palette = page.getByRole('dialog', { name: '명령 팔레트' }); await palette.getByRole('combobox').fill('의미·텍스트 비교'); await palette.getByRole('combobox').press('Enter');
-  const modal = page.getByRole('dialog', { name: '의미·텍스트 비교' });
+  const modal = page.getByRole('tabpanel', { name: '의미·텍스트 비교' });
   await modal.getByLabel('이후 비교 원문').waitFor(); assert.equal(await modal.getByLabel('이전 비교 원문').inputValue(), disk); assert.ok((await modal.getByLabel('이후 비교 원문').inputValue()).includes('Unsaved body'));
   async function compare() { await modal.getByRole('button', { name: '의미 비교', exact: true }).click(); await modal.getByRole('status').filter({ hasText: '의미 비교를 완료했습니다.' }).waitFor(); }
   await compare(); const result = modal.getByRole('region', { name: '의미 비교 결과', exact: true });

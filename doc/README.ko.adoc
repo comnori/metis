@@ -88,9 +88,12 @@ PR마다 Windows·macOS·Linux에서 `npm run check`를 실행합니다. 핵심 
 | 명령 | 용도
 | ``npm run check`` | 타입 검사·단위 테스트·도구 테스트·빌드
 | ``npm run test:desktop:core`` | 빌드된 개발 앱의 핵심 문서 흐름
-| ``npm run test:integration`` | 기존 31개 시나리오와 핵심 흐름의 전체 개발 앱 검사
+| ``npm run test:ux-redesign`` | 설정·반응형 팝업·검토 탭·요청 소유권 검사
+| ``npm run test:integration`` | 핵심 흐름과 UI 재설계를 포함한 전체 개발 앱 검사
 | ``npm run test:integration:packaged`` | 최신 패키지 앱에서 동일한 전체 검사
 |===
+
+탐색·설정·검토 화면의 동작과 실제 사용자 평가 범위는 link:ui-ux-redesign.adoc[UI/UX 재설계 문서]를 참고하세요.
 
 GUI 검사는 자체 빌드를 하지 않으므로 먼저 check 또는 build 명령을 실행합니다. 결과는 ``.pre04-runs/core-*/`` 및 ``.pre04-runs/integration-*/``에 저장됩니다. Linux GUI 검사는 Xvfb에서 실행합니다.
 

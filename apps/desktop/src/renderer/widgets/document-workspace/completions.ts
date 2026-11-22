@@ -22,6 +22,8 @@ export function complete(context: CompletionContext, path: string, analysis?: An
       { label: '/code', apply: '[source]\n----\n\n----\n', detail: '소스 코드 블록 (Source code block)', type: 'keyword' },
       { label: '/table', apply: '|===\n| 열 1 | 열 2\n\n| 항목 1 | 항목 2\n|===\n', detail: 'AsciiDoc 표 (Table)', type: 'keyword' },
       { label: '/mermaid', apply: '[mermaid]\n----\nflowchart TD\n    A[시작] --> B[완료]\n----\n', detail: 'Mermaid 다이어그램 블록', type: 'keyword' },
+      { label: '/d2', apply: '[d2]\n----\ndirection: right\n시작 -> 완료\n----\n', detail: 'D2 다이어그램 블록', type: 'keyword' },
+      { label: '/youtube', apply: 'video::VIDEO_ID[youtube]\n', detail: 'YouTube 영상 · 확장 관리에서 활성화', type: 'keyword' },
       { label: '/quote', apply: '[quote]\n____\n\n____\n', detail: '인용 블록 (Quote block)', type: 'keyword' },
       { label: '/sidebar', apply: '****\n\n****\n', detail: '사이드바 블록 (Sidebar block)', type: 'keyword' },
       { label: '/example', apply: '====\n\n====\n', detail: '예제 블록 (Example block)', type: 'keyword' },

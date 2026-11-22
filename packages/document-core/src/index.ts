@@ -5,9 +5,10 @@ import { load, Extensions, MemoryLogger, LoggerManager, type AbstractBlock } fro
 import path from 'node:path';
 import { semanticObserver } from './semantics';
 import { sourceCursor } from './source-cursor';
+import { trackPreviewLocations } from './preview-locations';
 import { Workspace } from '@metis/workspace';
 import { BoundaryError, type Analysis, type Diagnostic, type OutlineEntry } from '@metis/contracts';
-import { mermaidBlockProcessor, MetisHighlighter } from './preview-extensions';
+import { d2BlockProcessor, mermaidBlockProcessor, MetisHighlighter } from './preview-extensions';
 const maxBytes = 4 * 1024 * 1024;
 export async function analyze(root: string, relativePath: string, text: string, resolveReferences = true, includeSources = true, context?: { sources: ReadonlyMap<string, DocumentSnapshot>; blocks: SemanticBlock[]; includeBlockedMessage?: string }): Promise<Analysis> {
   const workspace = new Workspace();
@@ -25,6 +26,7 @@ export async function analyze(root: string, relativePath: string, text: string, 
   const semantic = semanticObserver(location);
   registry.preprocessor(function () { this.process((doc, reader) => semantic.observe(doc, reader)); });
   registry.block(mermaidBlockProcessor(diagnostics, location));
+  registry.block(d2BlockProcessor(diagnostics, location));
   registry.includeProcessor(function () {
     this.handles(() => true);
     this.process(async (_doc, reader, target, attrs) => {
@@ -112,6 +114,7 @@ export async function analyze(root: string, relativePath: string, text: string, 
     };
     collect(doc);
   }
+  const previewLocations = trackPreviewLocations(doc, location, semantic.blockSource);
   const html = String(await doc.convert());
   if (Buffer.byteLength(html) > maxBytes) throw new BoundaryError('TOO_LARGE', '미리보기 출력 한도를 초과했습니다.');
   for (const message of logger.getMessages().slice(0, 100)) {
@@ -178,6 +181,6 @@ export async function analyze(root: string, relativePath: string, text: string, 
     }
   }
   if (targetAnchors.length > metadataLimit) diagnostics.unshift({ relativePath, line: 1, message: '외부 문서 앵커 후보 2,000개 한도에 도달했습니다.' });
-  return { title: doc.getTitle() ?? '', html, outline: outline.slice(0, metadataLimit), diagnostics: diagnostics.slice(0, 100), anchors: anchors.slice(0, metadataLimit), targetAnchors: targetAnchors.slice(0, metadataLimit), files, relations: semantic.relations,
+  return { previewLocations, imagesDirectory: String(doc.getAttribute('imagesdir') ?? ''), title: doc.getTitle() ?? '', html, outline: outline.slice(0, metadataLimit), diagnostics: diagnostics.slice(0, 100), anchors: anchors.slice(0, metadataLimit), targetAnchors: targetAnchors.slice(0, metadataLimit), files, relations: semantic.relations,
     attributes: semantic.attributes.slice(0, metadataLimit), attributeUses: semantic.attributeUses.slice(0, metadataLimit), conditions: semantic.conditions.slice(0, metadataLimit) };
 }

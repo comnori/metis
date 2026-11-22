@@ -16,7 +16,7 @@ if (process.argv[2] === 'package') {
   await mkdir(stage, { recursive: true });
   await cp(path.join(root, 'apps/desktop/dist'), path.join(stage, 'dist'), { recursive: true });
   await copyFile(path.join(root, 'LICENSE'), path.join(stage, 'LICENSE'));
-  await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: 'metis', productName: 'Metis', version, description: 'AsciiDoc knowledge workspace', author: 'Yongsik Yun', license: 'MIT', main: 'dist/main/main.cjs', devDependencies: { electron: '44.3.0' }, config: { forge: { packagerConfig: { asar: true }, makers: [] } } }, null, 2));
+  await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: 'metis', productName: 'Metis', version, description: 'AsciiDoc knowledge workspace', author: 'Yongsik Yun', license: 'MIT', main: 'dist/main/main.cjs', devDependencies: { electron: '44.3.0' }, config: { forge: { packagerConfig: { asar: true, appBundleId: 'comnori.metis', protocols: [{ name: 'Metis authentication', schemes: ['metis'] }] }, makers: [] } } }, null, 2));
   await run(process.execPath, [path.join(root, 'node_modules/@electron-forge/cli/dist/electron-forge.js'), 'package'], stage);
   await writeFile(path.join(root, '.pre04-runs/latest-package.txt'), stage);
   await cleanupPackages(root, stage);

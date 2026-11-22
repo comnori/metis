@@ -20,7 +20,7 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUNSAVED BUFFER');
   await page.keyboard.press('ControlOrMeta+Shift+P'); const palette = page.getByRole('dialog', { name: '명령 팔레트' }); await palette.getByRole('combobox').fill('문서 근거 탐색'); await palette.getByRole('combobox').press('Enter');
-  const modal = page.getByRole('dialog', { name: '문서 근거 탐색' }), search = modal.getByRole('region', { name: '문서 근거 검색', exact: true }), results = modal.getByRole('region', { name: '근거 검색 결과', exact: true });
+  const modal = page.getByRole('tabpanel', { name: '문서 근거 탐색' }), search = modal.getByRole('region', { name: '문서 근거 검색', exact: true }), results = modal.getByRole('region', { name: '근거 검색 결과', exact: true });
   async function build() { await modal.getByRole('button', { name: '맥락 구성', exact: true }).click(); await modal.getByRole('status').filter({ hasText: '맥락 구성을 완료했습니다.' }).waitFor(); }
   async function query(text) { await search.getByLabel('찾을 내용').fill(text); await search.getByRole('button', { name: '근거 찾기', exact: true }).click(); }
   await modal.getByRole('checkbox', { name: 'b.adoc', exact: true }).check(); await modal.getByRole('checkbox', { name: '해석 기준: b.adoc', exact: true }).check(); await build();

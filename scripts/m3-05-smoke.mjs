@@ -33,7 +33,7 @@ try {
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click(); await page.getByRole('button', { name: '≡a.adoc', exact: true }).click();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content'); await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('\nUNSAVED');
   await page.keyboard.press('ControlOrMeta+Shift+P'); const palette = page.getByRole('dialog', { name: '명령 팔레트' }); await palette.getByRole('combobox').fill('변경 제안 검토'); await palette.getByRole('combobox').press('Enter');
-  const modal = page.getByRole('dialog', { name: '변경 제안 검토' });
+  const modal = page.getByRole('tabpanel', { name: '변경 제안' });
   const consent = modal.getByRole('checkbox', { name: '선택한 변경과 비교 한계를 확인했고 초안 반영을 승인합니다.' });
   const apply = modal.getByRole('button', { name: '승인한 변경을 초안에 반영' });
   async function load() { await modal.getByLabel('제안 JSON').fill(proposal); await modal.getByRole('button', { name: '제안 읽기', exact: true }).click(); }
@@ -44,7 +44,7 @@ try {
   await modal.getByLabel('제안 서버 포트').fill(String(port)); if (!agent) await modal.getByLabel('제안 모델', { exact: true }).fill('fixture-model'); await modal.getByLabel('변경 요청', { exact: true }).fill('문장 개선');
   assert.equal(await generate.isDisabled(), true); assert.equal(requests, 0);
   await sendConsent.check(); await modal.getByLabel('변경 요청', { exact: true }).fill('원문에 근거해 문장 개선'); assert.equal(await sendConsent.isChecked(), false);
-  mode = 'hold'; await sendConsent.check(); await generate.click(); await modal.getByRole('button', { name: '제안 생성 취소' }).click(); await modal.getByRole('status').filter({ hasText: '취소' }).waitFor(); pending?.();
+  mode = 'hold'; await sendConsent.check(); await generate.click(); await modal.getByRole('button', { name: '제안 생성 취소' }).click(); await modal.getByRole('status').filter({ hasText: '제안 생성을 취소했습니다.' }).waitFor(); pending?.();
   assert.equal(await apply.isDisabled(), true);
   mode = 'invalid'; await sendConsent.check(); await generate.click(); await modal.getByRole('status').filter({ hasText: '이전 원문이 정확히 한 곳' }).waitFor(); assert.equal(await modal.getByRole('checkbox', { name: '변경 alpha', exact: true }).count(), 0);
   pending = undefined; mode = 'hold'; await sendConsent.check(); await generate.click();

@@ -1,6 +1,13 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { channels, type Api } from '@metis/contracts';
 const api: Api = {
+  exportPreviewPdf: request => ipcRenderer.invoke(channels.exportPreviewPdf, request),
+  readD2File: request => ipcRenderer.invoke(channels.readD2File, request),
+  exportD2: request => ipcRenderer.invoke(channels.exportD2, request),
+  openWebLink: request => ipcRenderer.invoke(channels.openWebLink, request),
+  plugins: request => ipcRenderer.invoke(channels.plugins, request),
+  attachmentFilePath: file => webUtils.getPathForFile(file),
+  attachments: request => ipcRenderer.invoke(channels.attachments, request),
   agentProgress: request => ipcRenderer.invoke(channels.agentProgress, request),
   generateProposal: request => ipcRenderer.invoke(channels.generateProposal, request),
   cancelProposal: request => ipcRenderer.invoke(channels.cancelProposal, request),

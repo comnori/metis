@@ -25,7 +25,7 @@ try {
   const create = page.getByRole('dialog', { name: '새 문서', exact: true }); await create.waitFor();
   for (let i = 0; i < 8; i++) { await page.keyboard.press('Tab'); assert.equal(await page.evaluate(() => !!document.activeElement?.closest('dialog[open]')), true); }
   await page.keyboard.press('Escape'); await create.waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), '새 문서');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '새 문서');
   checks.push('create dialog traps focus and Escape restores invoker');
   await page.getByRole('button', { name: '검색', exact: true }).click();
   const query = page.getByRole('searchbox', { name: '검색어' }); await query.fill('needle');
@@ -57,6 +57,7 @@ try {
   await reviewDialog.getByRole('button', { name: '취소', exact: true }).click();
   checks.push('208-document workspace shows bounded review warning without applying changes');
   await page.getByRole('button', { name: '≡large.adoc', exact: true }).click();
+  await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: '미리보기 원문 한도는 1 MiB' }).waitFor();
   const editor = page.locator('.editor-panel:not([hidden]) .cm-content');
   await editor.click(); await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.insertText('kept');

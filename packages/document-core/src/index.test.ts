@@ -4,6 +4,26 @@ import path from 'node:path';
 import os from 'node:os';
 import { analyze } from './index';
 const roots: string[] = [];
+test('preview source locations identify paragraphs and preserve included file origins', async () => {
+  const root = await fixture();
+  const source = '= Title\n\n== Section\n\nFirst paragraph.\n\nSecond paragraph.\n\ninclude::shared/part.adoc[]';
+  const result = await analyze(root, 'main.adoc', source);
+  for (const line of [5, 7]) {
+    const location = result.previewLocations?.find(location => location.relativePath === 'main.adoc' && location.line === line);
+    expect(location).toBeDefined();
+    expect(result.html).toContain(`data-metis-source="${location!.token}"`);
+  }
+  expect(result.previewLocations?.some(location => location.relativePath === 'shared/part.adoc')).toBe(true);
+  expect((await analyze(root, 'main.adoc', source)).html).toBe(result.html);
+});
+test('imported Korean document paths retain resolvable preview links', async () => {
+  const root = await fixture();
+  await fs.mkdir(path.join(root, '한글--id'), { recursive: true });
+  await fs.writeFile(path.join(root, '한글--id/index.adoc'), '= 대상');
+  const result = await analyze(root, 'docs/main.adoc', '= Title\n\n.속성\n|===\n|이름 |예제\n|===\n\n== 제목\n\n* [x] 완료\n\nxref:../한글\\--id/index.adoc[DB 문서]');
+  expect(result.relations).toEqual(expect.arrayContaining([expect.objectContaining({ target: '../한글--id/index.adoc', state: 'resolved' })]));
+  expect(result.html).toContain('href="../한글--id/index.html"');
+});
 test('semantic references resolve actual anchors and saved target documents', async () => {
   const root = await fixture();
   const result = await analyze(root, 'main.adoc', '= Main\n:release:\n:product: Metis\n\n[[local]]\n== Local\n\n{product} <<local>> xref:shared/part.adoc#_shared_section[] <<missing>>\n\nifdef::absent[]\nxref:ghost.adoc[]\nendif::[]\n\n----\nxref:code.adoc[]\n----');
@@ -39,6 +59,7 @@ test('converts mermaid blocks to bounded renderer placeholders with source metad
   expect(result.html).toContain('class="metis-mermaid"');
   expect(result.html).toContain('id="system"');
   expect(result.html).toContain('data-mermaid-path="main.adoc"');
+  expect(result.html).toContain('data-mermaid-line="7"');
   expect(result.html).toContain('Metis flow');
   expect(result.html).toContain('flowchart LR');
 });

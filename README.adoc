@@ -18,6 +18,18 @@ Metis is designed for offline-friendly note-taking and structured documentation,
 
 Metis is inspired by the local-file workflow that Obsidian users value, while using standard AsciiDoc for richer document structure, composition, and reuse.
 
+== Local attachments
+
+Use **Insert attachment (첨부파일 삽입)**, drag files into the editor, or paste an image. Metis stores external files in an `assets/` folder beside the document and inserts standard AsciiDoc image, audio, video, or link macros. Local media is previewed; general file links open with the OS default application. See link:doc/attachments.adoc[attachment syntax and limitations (한국어)].
+
+== Preview extensions
+
+Mermaid and D2 diagrams and YouTube videos are managed through **Extensions (확장 관리)**. Mermaid and D2 are enabled by default. Insert a `[d2]` block with `/d2`; the bundled offline engine supports Dagre, ELK and TALA, imports, themes, sketch mode, rich labels, multiple boards and animation. Save D2 diagrams as SVG, PNG, PDF, GIF or text; PowerPoint export is excluded. Enable **YouTube 영상** to preview `video::VIDEO_ID[youtube]`. See link:doc/preview-extensions.adoc[preview extensions] and link:doc/d2.adoc[D2 usage and supported options (한국어)].
+
+== Navigation and settings
+
+Use the named sidebar for files, search, favorites, review tools, recovery copies and help. Git, comparison and review tools open beside documents as persistent tabs. Settings combines layout, fonts, preview themes, extensions and external tools in one searchable dialog. See link:doc/ui-ux-redesign.adoc[interaction rules and validation (한국어)].
+
 == Development philosophy
 
 **Knowledge should remain in the user's files, and tools should help users work with it.** Metis aims to provide an AsciiDoc-based knowledge environment where documents remain readable, editable, and reusable even after users stop using the app.
@@ -88,7 +100,8 @@ PRs run `npm run check` on Windows, macOS, and Linux. Core GUI scenarios remain 
 | Command | Purpose
 | ``npm run check`` | Type checking, unit tests, tooling tests, and build
 | ``npm run test:desktop:core`` | Core document flow against the built development app
-| ``npm run test:integration`` | Full development GUI suite: 31 existing scenarios plus the core flow
+| ``npm run test:ux-redesign`` | Settings, responsive dialogs, persistent tabs and request ownership
+| ``npm run test:integration`` | Full development GUI suite including the core flow and UI redesign scenarios
 | ``npm run test:integration:packaged`` | The same full suite against the latest packaged app
 |===
 
