@@ -17,7 +17,7 @@ const checks = [];
 try {
   const page = await app.firstWindow(); page.on('dialog', dialog => { void dialog.dismiss().catch(() => {}); });
   const external = []; page.on('request', request => { if (/^https?:/.test(request.url())) external.push(request.url()); });
-  await app.evaluate(({ dialog }, fixture) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
+  await app.evaluate(({ BrowserWindow, dialog }, fixture) => { const win = BrowserWindow.getAllWindows()[0]; win.showInactive(); win.setContentSize(1024, 768); dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] }); dialog.showMessageBoxSync = () => 1; }, fixture);
   await page.getByRole('button', { name: '폴더 열기', exact: true }).first().click();
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   await page.getByRole('button', { name: '문서 정보', exact: true }).click();

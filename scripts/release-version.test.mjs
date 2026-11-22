@@ -256,7 +256,7 @@ test('workflow event contracts keep heavy checks and publication manual', async 
   assert.deepEqual(events(release), ['workflow_dispatch']);
   assert.match(core, /types: \[opened, synchronize, reopened\]/);
   assert.match(core, /cancel-in-progress: true/);
-  assert.match(core, /os: \[windows-2022, macos-14, ubuntu-22.04\]/);
+  assert.match(core, /os: \[windows-2022, macos-15, ubuntu-22.04\]/);
   assert.match(core, /run: npm run check/);
   assert.doesNotMatch(core, /npm run (package|test:integration)/);
   assert.match(full, /ref: \$\{\{ needs.target.outputs.sha \}\}/);

@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 
-export const fullJobs = ['windows-2022', 'macos-14', 'ubuntu-22.04'].map(os => `Desktop full / ${os}`);
+export const fullJobs = ['windows-2022', 'macos-15', 'ubuntu-22.04'].map(os => `Desktop full / ${os}`);
 
 export async function verifyReleaseValidation({ repository, sha, request }) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[a-f0-9]{40}$/.test(sha)) throw new Error('Expected repository and resolved commit SHA.');
