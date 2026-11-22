@@ -9,6 +9,8 @@ export interface WorkspaceAppearanceV1 {
   documentFontSize: number;
   previewTheme: PreviewTheme;
   customCssEnabled: boolean;
+  previewDelayMs: number;
+  previewAutoAlign: boolean;
 }
 
 export const uiFontPresets = {
@@ -28,7 +30,9 @@ export const defaultAppearance: WorkspaceAppearanceV1 = {
   documentFontFamily: documentFontPresets.code,
   documentFontSize: 15,
   previewTheme: 'default',
-  customCssEnabled: false
+  customCssEnabled: false,
+  previewDelayMs: 800,
+  previewAutoAlign: true
 };
 export const previewThemeStyles: Record<PreviewTheme, string> = {
   default: 'body{background:#fff;color:#233936}pre{background:#eef2ed}.admonitionblock{background:#fff6df;border-color:#92691b}td,th{border-color:#ccd7d2}a{color:#26755e}blockquote{border-color:#a3b8aa}',
@@ -38,6 +42,7 @@ export const previewThemeStyles: Record<PreviewTheme, string> = {
 const themes = new Set<PreviewTheme>(['default', 'dark', 'sepia']);
 export const clampUiFontSize = (value: number) => Math.max(12, Math.min(22, Math.round(value)));
 export const clampDocumentFontSize = (value: number) => Math.max(10, Math.min(32, Math.round(value)));
+export const clampPreviewDelay = (value: number) => Number.isFinite(value) ? Math.max(200, Math.min(5000, Math.round(value / 100) * 100)) : defaultAppearance.previewDelayMs;
 export function validFontFamily(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 256 && value === value.trim()
     && !/[\x00-\x1f;{}<>\\()[\]]/.test(value) && /^[\p{L}\p{N}\s,'"._-]+$/u.test(value);
@@ -50,7 +55,9 @@ export function normalizeAppearance(value: WorkspaceAppearanceV1): WorkspaceAppe
     documentFontFamily: validFontFamily(value.documentFontFamily) ? value.documentFontFamily : defaultAppearance.documentFontFamily,
     documentFontSize: clampDocumentFontSize(value.documentFontSize),
     previewTheme: themes.has(value.previewTheme) ? value.previewTheme : defaultAppearance.previewTheme,
-    customCssEnabled: !!value.customCssEnabled
+    customCssEnabled: !!value.customCssEnabled,
+    previewDelayMs: clampPreviewDelay(value.previewDelayMs),
+    previewAutoAlign: typeof value.previewAutoAlign === 'boolean' ? value.previewAutoAlign : defaultAppearance.previewAutoAlign
   };
 }
 export function readAppearance(raw: string | null): WorkspaceAppearanceV1 {

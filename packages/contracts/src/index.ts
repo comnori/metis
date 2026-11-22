@@ -1,5 +1,7 @@
 import { validPluginRequest, type PluginRequest } from './plugins';
 import { validWebLink } from './web-links';
+import { maxPreviewPdfLength, type PreviewPdfRequest } from './preview-pdf';
+export { maxPreviewPdfLength, type PreviewPdfRequest } from './preview-pdf';
 import { validD2Export, type D2ExportRequest } from './d2';
 export type { D2ExportRequest, D2ExportFormat } from './d2';
 export { validWebLink } from './web-links';
@@ -21,6 +23,7 @@ export { findCommands, executeCommand, type Command } from './commands';
 export { ExtensionRuntime, type ExtensionApi, type ExtensionDefinition, type ExtensionModel, type ExtensionViewData } from './extensions';
 export type { D2Board, PreviewAsset, ExtensionPreviewInput, ExtensionPreviewResult, ExtensionPreviewRenderer } from './preview-extensions';
 export const channels = {
+  exportPreviewPdf: 'metis:export-preview-pdf',
   exportD2: 'metis:export-d2',
   readD2File: 'metis:read-d2-file',
   openWebLink: 'metis:open-web-link',
@@ -99,11 +102,13 @@ export interface RelationIndex { edges: WorkspaceRelation[]; documents: string[]
 export interface AttributeDeclaration extends SourceLocation { name: string; value: string; applied: boolean }
 export interface AttributeUse extends SourceLocation { name: string; value?: string }
 export interface ConditionInfo extends SourceLocation { expression: string; state: 'active' | 'inactive' | 'unknown'; reason: string }
-export interface Analysis { imagesDirectory?: string; title?: string; html: string; outline: OutlineEntry[]; diagnostics: Diagnostic[]; anchors: AnchorSymbol[]; targetAnchors: Array<AnchorSymbol & { documentPath: string }>; relations: Relation[]; attributes: AttributeDeclaration[]; attributeUses: AttributeUse[]; conditions: ConditionInfo[]; files: string[] }
+export interface PreviewLocation extends SourceLocation { token: string }
+export interface Analysis { previewLocations?: PreviewLocation[]; imagesDirectory?: string; title?: string; html: string; outline: OutlineEntry[]; diagnostics: Diagnostic[]; anchors: AnchorSymbol[]; targetAnchors: Array<AnchorSymbol & { documentPath: string }>; relations: Relation[]; attributes: AttributeDeclaration[]; attributeUses: AttributeUse[]; conditions: ConditionInfo[]; files: string[] }
 export interface Entry { name: string; relativePath: string; kind: 'directory' | 'document' }
 export interface DocumentSnapshot { relativePath: string; text: string; revision: string; byteLength: number; bom: boolean; eol: 'lf' | 'crlf' | 'cr' | 'mixed' | 'none'; readOnly?: boolean }
 export interface Runtime { protocolVersion: number; workerReady: boolean }
 export interface Api {
+  exportPreviewPdf(request: PreviewPdfRequest): Promise<Result<{ saved: boolean }>>;
   exportD2(request: D2ExportRequest): Promise<Result<{ saved: boolean }>>;
   readD2File(request: PathRequest): Promise<Result<Uint8Array>>;
   plugins(request: PluginRequest): Promise<Result<unknown>>;
@@ -173,6 +178,13 @@ export function validFolderName(name: unknown): name is string {
 }
 export function validate(method: Method, input: unknown): Request | ScopedRequest | PathRequest | NamedRequest | RecentRequest | CreateDirectoryRequest {
   const fail = () => { throw new BoundaryError('INVALID_REQUEST', '요청 형식이 올바르지 않습니다.'); };
+  if (method === 'exportPreviewPdf') {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return fail();
+    const { html, ...scope } = input as Record<string, unknown>;
+    validate('readDocument', scope);
+    if (typeof html !== 'string' || !html.trim() || html.length > maxPreviewPdfLength || html.includes('\0') || !html.isWellFormed() || !/\.adoc$/i.test(String(scope.relativePath))) return fail();
+    return input as PreviewPdfRequest;
+  }
   if (method === 'exportD2') {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return fail();
     const { format, name, frames, interval, ...scope } = input as Record<string, unknown>;

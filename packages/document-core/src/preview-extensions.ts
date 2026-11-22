@@ -22,7 +22,8 @@ export class MetisHighlighter extends SyntaxHighlighterBase {
 export function mermaidBlockProcessor(diagnostics: Diagnostic[], locate: (file: unknown, line: number) => SourceLocation) {
   let count = 0;
   return class MermaidBlock extends BlockProcessor {
-    static config = { name: 'mermaid', contexts: ['listing'], contentModel: 'verbatim' };
+    // Preserve the reader's file/line cursor; consume its contents verbatim below.
+    static config = { name: 'mermaid', contexts: ['listing'], contentModel: 'compound' };
     process(parent: AbstractBlock, reader: Reader, attributes: Record<string, unknown>) {
       const position = locate(reader.file, Math.max(1, reader.lineno));
       const source = reader.lines.join('\n');

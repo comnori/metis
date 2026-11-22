@@ -14,6 +14,8 @@ import type { PluginRequest } from '@metis/contracts';
 import { PreviewWorker } from './preview-worker';
 import { youtubeAppId, youtubeReferer } from './youtube-player';
 import { exportD2 } from './d2-export';
+import { exportPreviewPdf } from './preview-pdf';
+import type { PreviewPdfRequest } from '@metis/contracts';
 import type { D2ExportRequest } from '@metis/contracts';
 import type { OperationRequest, RelationIndex, GitVersionRequest } from '@metis/contracts';
 import { Drafts, GitWorkspace, PreviewStylesheets, initializeGitRepository, isOwnGitRepository } from '@metis/workspace';
@@ -153,6 +155,7 @@ if (ownsLock) app.whenReady().then(() => {
         switch (method) {
           case 'readD2File': value = await readD2File(workspace, request as PathRequest); break;
           case 'exportD2': value = await exportD2(window, request as D2ExportRequest, () => { workspace.analysisRoot(request as ScopedRequest); }); break;
+          case 'exportPreviewPdf': value = await exportPreviewPdf(window, request as PreviewPdfRequest, attachments, () => { workspace.analysisRoot(request as ScopedRequest); }); break;
           case 'openWebLink': {
             const r = request as ScopedRequest & { url: string };
             workspace.analysisRoot(r); await shell.openExternal(r.url); value = null; break;

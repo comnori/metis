@@ -22,6 +22,7 @@ try {
   await page.getByRole('button', { name: '≡note.adoc', exact: true }).click();
   await page.getByRole('button', { name: '문서 정보', exact: true }).click();
   await page.locator('.outline-item').filter({ hasText: 'Included section' }).waitFor(); checks.push('parser outline with include source');
+  assert.equal(await page.locator('iframe[title="AsciiDoc 미리보기"]').count(), 0); checks.push('source mode keeps outline without mounting a hidden preview');
   assert.ok(await page.locator('.cm-content .cm-line span').count()); checks.push('syntax highlighting');
   await page.getByRole('button', { name: '분할', exact: true }).click();
   const preview = page.frameLocator('iframe[title="AsciiDoc 미리보기"]');

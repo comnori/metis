@@ -7,10 +7,50 @@ import { safePreview } from '../../widgets/document-workspace/preview';
 import { d2ExportData, followD2BoardLink } from '../../shared/lib/d2-preview';
 import { mountPreviewAssets } from '../../shared/lib/preview-assets';
 import { ExtensionRuntime } from '@metis/contracts';
+import { DiagramCache } from './diagram-cache';
+import type { D2CacheEntry } from './d2';
 
 const block = (source = 'a -> b', options = '{}') => `<div class="metis-d2" data-d2-path="docs/main.adoc" data-d2-line="8" data-d2-options='${options}'><pre><code>${source}</code></pre></div>`;
 const compiled = { diagram: { name: '', shapes: [], connections: [], root: {} }, renderOptions: { themeID: 0 } };
 const engine = () => ({ compile: vi.fn().mockResolvedValue(structuredClone(compiled)), render: vi.fn().mockResolvedValue('<svg xmlns="http://www.w3.org/2000/svg"><text>diagram</text></svg>'), dispose: vi.fn().mockResolvedValue(undefined) });
+
+test('unchanged D2 blocks are reused across prose edits, line shifts, duplicates and reordering', async () => {
+  const d2 = engine(), factory = vi.fn(async () => d2 as unknown as D2), cache = new DiagramCache<D2CacheEntry>();
+  const run = (html: string, theme: 'default' | 'dark' = 'default', cacheScope = 'workspace') => renderD2Preview({ html, theme, cacheScope }, new AbortController().signal, factory, cache);
+  await run(block('a -> b') + block('b -> c'));
+  expect(d2.compile).toHaveBeenCalledTimes(2);
+  await run('<p>Changed</p>' + (block('b -> c') + block('a -> b') + block('a -> b')).replaceAll('line="8"', 'line="30"'));
+  expect(d2.compile).toHaveBeenCalledTimes(2); expect(d2.render).toHaveBeenCalledTimes(2); expect(factory).toHaveBeenCalledTimes(1);
+  await run(block('a -> d') + block('b -> c')); expect(d2.compile).toHaveBeenCalledTimes(3);
+  await run(block('a -> d'), 'dark'); expect(d2.compile).toHaveBeenCalledTimes(4);
+  await run(block('a -> d'), 'dark', 'another-workspace'); expect(d2.compile).toHaveBeenCalledTimes(5);
+});
+
+test('D2 rechecks imported files, local icons and fonts before accepting a cached diagram', async () => {
+  const d2 = engine(), cache = new DiagramCache<D2CacheEntry>();
+  const files = new Map([['docs/shared.d2', 'one'], ['docs/icon.svg', 'icon'], ['docs/font.ttf', 'font']]);
+  // Match the compiler's structured missing-import error exactly.
+  d2.compile.mockImplementation(async ({ fs }: { fs: Record<string, string> }) => {
+    if (!fs['docs/shared.d2']) throw Error(JSON.stringify([{ errmsg: 'failed to import "docs/shared.d2": file does not exist' }]));
+    const value = structuredClone(compiled); Object.assign(value.diagram.root, { icon: 'icon.svg' }); return value;
+  });
+  const read = vi.fn(async (path: string) => { if (!files.has(path)) throw Error('Missing file'); return new TextEncoder().encode(files.get(path)!); });
+  const factory = vi.fn(async () => d2 as unknown as D2);
+  const run = () => renderD2Preview({ html: block('...@shared', '{"font-regular":"font.ttf"}'), theme: 'default', readD2File: read }, new AbortController().signal, factory, cache);
+  await run(); await run(); expect(d2.render).toHaveBeenCalledTimes(1); expect(factory).toHaveBeenCalledTimes(1);
+  for (const path of files.keys()) { files.set(path, files.get(path)! + ' changed'); await run(); }
+  expect(d2.render).toHaveBeenCalledTimes(4);
+  files.delete('docs/shared.d2'); expect((await run()).assets.size).toBe(0);
+  files.set('docs/shared.d2', 'restored'); expect((await run()).assets.size).toBe(1);
+});
+
+test('cached D2 diagnostics follow moved lines without retrying unchanged invalid source', async () => {
+  const d2 = engine(), cache = new DiagramCache<D2CacheEntry>();
+  d2.compile.mockRejectedValue(Error(JSON.stringify([{ range: 'docs/__metis_d2_0.d2,2:0:0-2:1:1', errmsg: 'syntax error' }])));
+  const run = (line: number) => renderD2Preview({ html: block('bad').replace('line="8"', `line="${line}"`), theme: 'default' }, new AbortController().signal, async () => d2 as unknown as D2, cache);
+  expect((await run(8)).diagnostics[0].line).toBe(10);
+  expect((await run(28)).diagnostics[0].line).toBe(30); expect(d2.compile).toHaveBeenCalledTimes(1);
+});
 
 test('validates rendering options and resolves dependencies relative to included documents', () => {
   expect(d2Options({ layout: 'tala', sketch: 'true', theme: '300', 'animate-interval': '1000', target: '*' })).toEqual({ layout: 'tala', sketch: true, themeID: 300, animateInterval: 1000, target: '*' });

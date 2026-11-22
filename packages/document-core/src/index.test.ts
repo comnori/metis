@@ -4,6 +4,18 @@ import path from 'node:path';
 import os from 'node:os';
 import { analyze } from './index';
 const roots: string[] = [];
+test('preview source locations identify paragraphs and preserve included file origins', async () => {
+  const root = await fixture();
+  const source = '= Title\n\n== Section\n\nFirst paragraph.\n\nSecond paragraph.\n\ninclude::shared/part.adoc[]';
+  const result = await analyze(root, 'main.adoc', source);
+  for (const line of [5, 7]) {
+    const location = result.previewLocations?.find(location => location.relativePath === 'main.adoc' && location.line === line);
+    expect(location).toBeDefined();
+    expect(result.html).toContain(`data-metis-source="${location!.token}"`);
+  }
+  expect(result.previewLocations?.some(location => location.relativePath === 'shared/part.adoc')).toBe(true);
+  expect((await analyze(root, 'main.adoc', source)).html).toBe(result.html);
+});
 test('imported Korean document paths retain resolvable preview links', async () => {
   const root = await fixture();
   await fs.mkdir(path.join(root, '한글--id'), { recursive: true });
@@ -47,6 +59,7 @@ test('converts mermaid blocks to bounded renderer placeholders with source metad
   expect(result.html).toContain('class="metis-mermaid"');
   expect(result.html).toContain('id="system"');
   expect(result.html).toContain('data-mermaid-path="main.adoc"');
+  expect(result.html).toContain('data-mermaid-line="7"');
   expect(result.html).toContain('Metis flow');
   expect(result.html).toContain('flowchart LR');
 });

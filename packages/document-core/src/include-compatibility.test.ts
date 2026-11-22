@@ -34,7 +34,8 @@ for (const scenario of scenarios) test(`built-in include parity: ${scenario.name
   const reference = await load(text, { safe: 'safe', base_dir: root, standalone: false, sourcemap: true, attributes: { docfile: path.join(root, 'main.adoc'), docname: 'main', showtitle: '' } });
   const expected = String(await reference.convert());
   const actual = await analyze(root, 'main.adoc', text, false);
-  expect(actual.html).toBe(expected);
+  // Source-position metadata is the only addition to the upstream HTML.
+  expect(actual.html.replace(/ data-metis-source="block-\d+"/g, '')).toBe(expected);
   expect(actual.diagnostics).toEqual([]);
   const outline: Array<{ title: string; level: number; line: number; relativePath: string }> = [];
   function visit(node: AbstractBlock) {

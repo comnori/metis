@@ -1,5 +1,8 @@
 import type { CompileOptions, D2, Diagram, RenderOptions } from '@d2lang/d2';
 import type { D2Board, Diagnostic, ExtensionDefinition, ExtensionPreviewInput, ExtensionPreviewResult } from '@metis/contracts';
+import { DiagramCache, diagramFingerprint, scopeDiagramSvg } from './diagram-cache';
+
+export interface D2CacheEntry { boards?: D2Board[]; error?: string; inputPath: string; dependencies: Map<string, string | undefined> }
 
 // The upstream browser distribution contains its worker and WASM. Keep it as a
 // lazy, unmodified build asset rather than parsing/rebundling 35 MB in Vite.
@@ -92,13 +95,18 @@ async function embedImages(diagram: Diagram, path: string, read: (path: string) 
   }
 }
 
-export async function renderD2Preview(input: ExtensionPreviewInput, signal: AbortSignal, factory = createD2): Promise<ExtensionPreviewResult> {
+export async function renderD2Preview(input: ExtensionPreviewInput, signal: AbortSignal, factory = createD2, cache = new DiagramCache<D2CacheEntry>()): Promise<ExtensionPreviewResult> {
   const template = document.createElement('template'); template.innerHTML = input.html;
   const blocks = [...template.content.querySelectorAll<HTMLElement>('.metis-d2')];
   const result: ExtensionPreviewResult = { html: input.html, assets: new Map(), diagnostics: [] };
   if (!blocks.length || signal.aborted) return result;
-  const engine = await factory();
-  const abort = () => { void engine.dispose(); };
+  let engine: D2 | undefined;
+  const getEngine = async () => {
+    engine ??= await factory();
+    if (signal.aborted) throw Error('Cancelled');
+    return engine;
+  };
+  const abort = () => { void engine?.dispose(); };
   signal.addEventListener('abort', abort, { once: true });
   const files = new Map<string, Promise<Uint8Array>>(); let totalBytes = 0;
   const read = (path: string): Promise<Uint8Array> => {
@@ -115,74 +123,107 @@ export async function renderD2Preview(input: ExtensionPreviewInput, signal: Abor
     }
     return files.get(path)!;
   };
+  const fingerprints = new Map<string, Promise<string>>();
+  const fingerprint = (path: string) => {
+    if (!fingerprints.has(path)) fingerprints.set(path, read(path).then(diagramFingerprint));
+    return fingerprints.get(path)!;
+  };
   try {
     for (const [index, block] of blocks.entries()) {
       if (signal.aborted) break;
       const path = block.dataset.d2Path ?? '', line = Math.max(1, Number(block.dataset.d2Line) || 1);
       const inputPath = d2Path(path, `__metis_d2_${index}.d2`);
+      const source = block.querySelector('pre code')?.textContent ?? '';
+      const optionsSource = block.dataset.d2Options ?? '{}';
+      const key = JSON.stringify([input.cacheScope ?? '', path, source, input.theme, optionsSource]);
+      const dependencies = new Map<string, string | undefined>();
+      const readDependency = async (path: string) => {
+        dependencies.set(path, undefined);
+        const value = await read(path); dependencies.set(path, await fingerprint(path)); return value;
+      };
+      let cached = cache.get(key);
+      if (cached) for (const [path, previous] of cached.dependencies) {
+        const current = await fingerprint(path).catch(() => undefined);
+        if (current !== previous) { cached = undefined; break; }
+      }
+      if (signal.aborted) break;
       try {
-        const attributes = JSON.parse(block.dataset.d2Options ?? '{}') as Record<string, string>;
-        const options = d2Options(attributes);
-        for (const [attr, key] of [['font-regular', 'fontRegular'], ['font-bold', 'fontBold'], ['font-italic', 'fontItalic'], ['font-semibold', 'fontSemibold']] as const) {
-          // The WASM bridge JSON-encodes options; Go []byte accepts base64,
-          // whereas JSON.stringify(Uint8Array) produces an incompatible object.
-          if (attributes[attr]) options[key] = dataUrl(await read(d2Path(path, attributes[attr])), 'font/ttf').split(',')[1] as unknown as Uint8Array;
-        }
-        const fs: Record<string, string> = Object.create(null);
-        fs[inputPath] = block.querySelector('pre code')?.textContent ?? '';
-        let compiled;
-        // Let the official parser resolve imports, including quoted paths, globs,
-        // spreads and nested imports. Supply only files it actually requests.
-        for (let attempt = 0; ; attempt++) {
-          if (signal.aborted) throw Error('Cancelled');
-          try { compiled = await engine.compile({ fs, inputPath, options }); break; }
-          catch (error) {
-            const missing = [...new Set(errors(error).flatMap(e => [...e.errmsg.matchAll(/failed to import "([^"]+\.d2)": file does not exist/g)].map(m => m[1])))];
-            if (!missing.length || attempt >= 64) throw error;
-            for (const name of missing) {
-              const canonical = d2Path('', name);
-              if (Object.hasOwn(fs, canonical)) throw error;
-              fs[canonical] = new TextDecoder('utf-8', { fatal: true }).decode(await read(canonical));
+        let rendered: D2Board[];
+        if (cached?.error) throw Error(cached.error);
+        if (cached?.boards) rendered = cached.boards;
+        else {
+          const attributes = JSON.parse(optionsSource) as Record<string, string>;
+          const options = d2Options(attributes);
+          for (const [attr, key] of [['font-regular', 'fontRegular'], ['font-bold', 'fontBold'], ['font-italic', 'fontItalic'], ['font-semibold', 'fontSemibold']] as const) {
+            // The WASM bridge JSON-encodes options; Go []byte accepts base64,
+            // whereas JSON.stringify(Uint8Array) produces an incompatible object.
+            if (attributes[attr]) options[key] = dataUrl(await readDependency(d2Path(path, attributes[attr])), 'font/ttf').split(',')[1] as unknown as Uint8Array;
+          }
+          const fs: Record<string, string> = Object.create(null);
+          fs[inputPath] = source;
+          const engine = await getEngine();
+          let compiled;
+          // Let the official parser resolve imports, including quoted paths, globs,
+          // spreads and nested imports. Supply only files it actually requests.
+          for (let attempt = 0; ; attempt++) {
+            if (signal.aborted) throw Error('Cancelled');
+            try { compiled = await engine.compile({ fs, inputPath, options }); break; }
+            catch (error) {
+              const missing = [...new Set(errors(error).flatMap(e => [...e.errmsg.matchAll(/failed to import "([^"]+\.d2)": file does not exist/g)].map(m => m[1])))];
+              if (!missing.length || attempt >= 64) throw error;
+              for (const name of missing) {
+                const canonical = d2Path('', name);
+                if (Object.hasOwn(fs, canonical)) throw error;
+                fs[canonical] = new TextDecoder('utf-8', { fatal: true }).decode(await readDependency(canonical));
+              }
             }
           }
-        }
-        await embedImages(compiled.diagram, path, read);
-        const renderOptions: RenderOptions = { ...compiled.renderOptions, ...options, noXMLTag: true, salt: `metis-d2-${index}` };
-        if (renderOptions.scale == null) renderOptions.scale = 1;
-        // Explicit source/block themes take precedence over the application theme.
-        if (input.theme === 'dark' && attributes.theme === undefined && (renderOptions.themeID == null || renderOptions.themeID === 0) && !/(?:^|[\s{;])theme-id\s*:/.test(Object.values(fs).join('\n'))) renderOptions.themeID = renderOptions.darkThemeID ?? 200;
-        const rendered: D2Board[] = [];
-        if (renderOptions.target !== undefined && renderOptions.target !== null || renderOptions.animateInterval) {
-          if (renderOptions.animateInterval && !renderOptions.target) renderOptions.target = '*';
-          const output = await engine.render(compiled.diagram, renderOptions);
-          rendered.push(renderOptions.ascii ? { name: renderOptions.target || 'root', svg: '', ascii: output } : { name: renderOptions.animateInterval ? 'animation' : renderOptions.target || 'root', svg: output });
-        } else {
-          for (const [boardIndex, board] of boards(compiled.diagram).entries()) {
-            if (signal.aborted) throw Error('Cancelled');
-            const output = await engine.render(board.diagram, { ...renderOptions, target: undefined, salt: `metis-d2-${index}-${boardIndex}` });
-            rendered.push(renderOptions.ascii ? { name: board.name, svg: '', ascii: output } : { name: board.name, svg: output });
+          await embedImages(compiled.diagram, path, readDependency);
+          const salt = `metis-d2-${crypto.randomUUID()}`;
+          const renderOptions: RenderOptions = { ...compiled.renderOptions, ...options, noXMLTag: true, salt };
+          if (renderOptions.scale == null) renderOptions.scale = 1;
+          // Explicit source/block themes take precedence over the application theme.
+          if (input.theme === 'dark' && attributes.theme === undefined && (renderOptions.themeID == null || renderOptions.themeID === 0) && !/(?:^|[\s{;])theme-id\s*:/.test(Object.values(fs).join('\n'))) renderOptions.themeID = renderOptions.darkThemeID ?? 200;
+          rendered = [];
+          if (renderOptions.target !== undefined && renderOptions.target !== null || renderOptions.animateInterval) {
+            if (renderOptions.animateInterval && !renderOptions.target) renderOptions.target = '*';
+            const output = await engine.render(compiled.diagram, renderOptions);
+            rendered.push(renderOptions.ascii ? { name: renderOptions.target || 'root', svg: '', ascii: output } : { name: renderOptions.animateInterval ? 'animation' : renderOptions.target || 'root', svg: output });
+          } else {
+            for (const [boardIndex, board] of boards(compiled.diagram).entries()) {
+              if (signal.aborted) throw Error('Cancelled');
+              const output = await engine.render(board.diagram, { ...renderOptions, target: undefined, salt: `${salt}-${boardIndex}` });
+              rendered.push(renderOptions.ascii ? { name: board.name, svg: '', ascii: output } : { name: board.name, svg: output });
+            }
           }
+          if (!rendered.length) throw Error('표시할 D2 보드가 없습니다.');
+          if (rendered.some(b => b.svg.length > 4 * 1024 * 1024 || (b.ascii?.length ?? 0) > 1024 * 1024) || rendered.reduce((n, b) => n + b.svg.length + (b.ascii?.length ?? 0), 0) > 16 * 1024 * 1024) throw Error('D2 출력 한도를 초과했습니다. 보드를 나누거나 target을 지정하세요.');
+          if (signal.aborted) break;
+          cache.set(key, { boards: rendered, inputPath, dependencies }, rendered.reduce((n, b) => n + (b.svg.length + (b.ascii?.length ?? 0)) * 2, dependencies.size * 512));
         }
-        if (!rendered.length) throw Error('표시할 D2 보드가 없습니다.');
-        if (rendered.some(b => b.svg.length > 4 * 1024 * 1024 || (b.ascii?.length ?? 0) > 1024 * 1024) || rendered.reduce((n, b) => n + b.svg.length + (b.ascii?.length ?? 0), 0) > 16 * 1024 * 1024) throw Error('D2 출력 한도를 초과했습니다. 보드를 나누거나 target을 지정하세요.');
         const token = `d2-${index}`;
-        result.assets.set(token, { kind: 'd2', boards: rendered });
+        result.assets.set(token, { kind: 'd2', boards: rendered.map((board, boardIndex) => ({ ...board, svg: scopeDiagramSvg(board.svg, `${token}-${boardIndex}`) })) });
         block.querySelector('pre')?.remove();
         const slot = document.createElement('div'); slot.className = 'metis-d2-output'; slot.dataset.previewAsset = token; block.append(slot);
       } catch (error) {
         if (signal.aborted) break;
-        const diagnostic = d2Diagnostic(error, path, line, inputPath);
+        if (!cached) cache.set(key, { error: error instanceof Error ? error.message : String(error), inputPath, dependencies }, 20000 + dependencies.size * 512);
+        const diagnostic = d2Diagnostic(error, path, line, cached?.inputPath ?? inputPath);
         result.diagnostics.push(diagnostic); block.classList.add('metis-d2-error');
         const notice = document.createElement('p'); notice.textContent = diagnostic.message; block.querySelector('pre')?.before(notice);
       }
     }
     result.html = template.innerHTML;
     return result;
-  } finally { signal.removeEventListener('abort', abort); await engine.dispose(); }
+  } finally { signal.removeEventListener('abort', abort); await engine?.dispose(); }
 }
 
 export const d2Extension: ExtensionDefinition = {
   id: 'd2', name: 'D2 다이어그램', defaultEnabled: true,
   description: '[d2] 블록의 레이아웃·테마·스케치·수식·이미지·다중 보드를 표시합니다. 비활성화하면 원문 코드를 표시합니다.',
-  activate(api) { api.preview('diagrams', renderD2Preview); }
+  activate(api) {
+    const cache = new DiagramCache<D2CacheEntry>();
+    api.preview('diagrams', (input, signal) => renderD2Preview(input, signal, createD2, cache));
+    return () => cache.clear();
+  }
 };

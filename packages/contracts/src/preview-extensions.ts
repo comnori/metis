@@ -6,6 +6,7 @@ export type PreviewAsset = { kind: 'svg'; svg: string } | { kind: 'd2'; boards: 
 };
 export interface ExtensionPreviewInput {
   html: string; theme: 'default' | 'dark' | 'sepia';
+  cacheScope?: string;
   readD2File?(relativePath: string): Promise<Uint8Array>;
 }
 export interface ExtensionPreviewResult { html: string; assets: Map<string, PreviewAsset>; diagnostics: Diagnostic[] }

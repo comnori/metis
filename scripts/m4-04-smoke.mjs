@@ -22,6 +22,7 @@ try {
   await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow.scrollY > 1000);
   const y = await frame.evaluate(f => f.contentWindow.scrollY);
   await page.getByRole('button', { name: '원문', exact: true }).click(); await page.getByRole('button', { name: '분할', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('iframe')?.contentWindow.scrollY > 1000);
   assert.ok(Math.abs(await frame.evaluate(f => f.contentWindow.scrollY) - y) < 3);
   checks.push('outline navigation aligns source and preview section; source/split switching retains preview scroll');
   await page.getByRole('button', { name: '포함 원문 열기: part.adoc', exact: true }).click(); await page.getByRole('heading', { name: 'part.adoc', exact: true }).waitFor();
@@ -41,12 +42,15 @@ try {
   await editor.focus(); await page.keyboard.press('ControlOrMeta+Home'); await page.keyboard.insertText('= Updated\n');
   await page.locator('.outline').getByRole('status').filter({ hasText: '해석 중' }).waitFor();
   assert.equal(await page.getByRole('button', { name: '편집 위치와 맞추기', exact: true }).isDisabled(), true);
-  await page.waitForFunction(() => document.querySelector('.preview-surface>p')?.textContent?.startsWith('현재 편집 기준'));
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === '편집 위치와 맞추기' && !button.disabled));
+  assert.equal(await frame.count(), 0);
   await page.getByRole('button', { name: '분할', exact: true }).click();
+  await page.frameLocator('iframe[title="AsciiDoc 미리보기"]').getByRole('heading', { name: 'Updated', exact: true }).waitFor();
   assert.ok(await frame.evaluate(f => f.contentWindow.scrollY) < 3);
-  await page.getByRole('button', { name: '편집 위치와 맞추기', exact: true }).click(); await page.locator('.outline').getByRole('status').filter({ hasText: '대응' }).waitFor();
+  await page.getByRole('button', { name: '편집 위치와 맞추기', exact: true }).click();
+  assert.ok(await frame.evaluate(f => f.contentWindow.scrollY) < 3);
   assert.equal(await readFile(path.join(fixture, 'long.adoc'), 'utf8'), original);
-  await page.screenshot({ path: path.join(run, 'position.png') }); checks.push('edits mark prior preview stale and block navigation; fresh content resets position and missing section has explicit fallback');
+  await page.screenshot({ path: path.join(run, 'position.png') }); checks.push('edits mark prior preview stale and block navigation; fresh content follows the editor and the document header falls back to the top');
   await page.getByRole('button', { name: '≡format.adoc', exact: true }).click();
   const preview = page.frameLocator('iframe[title="AsciiDoc 미리보기"]');
   await preview.getByRole('heading', { name: 'Readability' }).waitFor();
