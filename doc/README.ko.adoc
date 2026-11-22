@@ -73,6 +73,26 @@ image::diagrams/development-ko.svg[흐름도]
 
 link:diagrams/development-ko.mmd[Mermaid 원본]
 
+== 진단 로그
+
+Electron의 `userData` 폴더 아래 `logs/diagnostics.jsonl`에 JSON Lines 형식으로 기록합니다. Windows 패키지의 기본 위치는 보통 `%APPDATA%\Metis\logs`이며, `METIS_USER_DATA`를 지정하면 해당 폴더를 기준으로 저장합니다. 현재 파일은 2 MiB에서 순환하며 백업 3개(`diagnostics.jsonl.1`부터 `.3`, 최신순)를 보관합니다. 장애 조사 시 현재 파일과 백업을 함께 확인하세요.
+
+[cols="1,3",options="header"]
+|===
+| 이벤트 | 확인할 정보
+| `app-start` | 앱·Electron·Chromium·Node 버전, OS·아키텍처, 실행 파일과 일부 런타임 옵션
+| `render-process-gone`, `child-process-gone` | 종료 사유·코드, 렌더러 ID와 마지막으로 관측한 OS PID 또는 자식 프로세스 종류·서비스 이름
+| `preload-error` | preload 경로, 오류 메시지·스택
+| `did-fail-load`, `did-fail-provisional-load` | 오류 코드, 민감 정보를 제거한 URL, 메인·하위 프레임 구분과 프레임 ID. `ERR_ABORTED`는 정상적인 취소일 수도 있음
+| `dom-ready`, `did-finish-load`, `unresponsive`, `responsive` | 페이지 시작·로딩 완료·응답 상태
+| `before-quit`, `app-quit`, `main-process-exit` | 종료 시점과 제공되는 종료 코드
+| `load-file-failed`, `startup-failed`, `uncaught-exception` | 메인 페이지 로드 Promise 거부, 앱 초기화 실패 또는 관측한 치명적 JavaScript 예외
+|===
+
+각 기록에는 UTC 시각, 실행별 세션 ID, 메인 프로세스 PID가 포함됩니다. 숨겨진 내보내기 창을 포함한 모든 Electron 웹 콘텐츠를 감시합니다. URL의 인증 정보·쿼리·fragment와 `data:`·`blob:` 본문은 제거하고 긴 문자열은 제한합니다. 로컬 경로와 오류 메시지는 남을 수 있으며, 문서 본문·IPC 요청 내용·일반 콘솔 출력은 수집하지 않습니다. 파일 쓰기가 실패하면 stderr에 한 번 알리고 앱 실행은 계속합니다.
+
+메인 프로세스 강제 종료나 네이티브 충돌은 마지막 기록을 남기지 못할 수 있습니다. 이 로그는 실패 지점을 확인하기 위한 것으로, DLL 주입 여부나 보안 제품과의 충돌을 직접 입증하지는 않습니다. `npm run build` 후 `npm run test:diagnostics`로 임시 프로필에서 preload 오류·없는 페이지·렌더러 충돌의 실제 기록을 검증할 수 있습니다.
+
 == 변경 사항 검증
 
 [source,sh]

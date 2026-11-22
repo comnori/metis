@@ -10,6 +10,7 @@ import { PluginHost } from './plugin-host';
 import { PluginAuth } from './plugin-auth';
 import { AuthDeepLinks, authProtocol, splitDeepLinkArguments } from './auth-deep-links';
 import { launchArguments } from './launch-arguments';
+import { installDiagnostics } from './diagnostics';
 import type { PluginRequest } from '@metis/contracts';
 import { PreviewWorker } from './preview-worker';
 import { youtubeAppId, youtubeReferer } from './youtube-player';
@@ -38,6 +39,7 @@ const receiveArguments = (args: string[], cwd: string) => {
 };
 const launchArgs = launchArguments(process.argv, !!process.defaultApp, app.getAppPath());
 const ownsLock = app.requestSingleInstanceLock({ args: launchArgs, cwd: process.cwd() });
+const diagnostics = ownsLock ? installDiagnostics(app) : undefined;
 let launchWindow: BrowserWindow | undefined;
 if (!ownsLock) app.quit();
 else {
@@ -384,6 +386,9 @@ if (ownsLock) app.whenReady().then(() => {
       } catch (error) { return failure(requestId, fileError(error)); }
     });
   }
-  void window.loadFile(entry);
+  void window.loadFile(entry).catch(error => diagnostics?.write('load-file-failed', { entry, error }));
+}).catch(error => {
+  diagnostics?.write('startup-failed', { error });
+  app.exit(1);
 });
 app.on('window-all-closed', () => app.quit());

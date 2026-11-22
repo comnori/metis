@@ -85,6 +85,26 @@ image::doc/diagrams/development-en.svg[Workflow diagram]
 
 link:doc/diagrams/development-en.mmd[Mermaid source]
 
+== Diagnostic logs
+
+Metis writes local JSON Lines diagnostics to `logs/diagnostics.jsonl` inside Electron's `userData` directory. Windows packaged builds normally use `%APPDATA%\Metis\logs`; setting `METIS_USER_DATA` changes the base directory. The current file rotates at 2 MiB, retaining three backups (`diagnostics.jsonl.1` through `.3`, newest first). Include the current file and backups when investigating a failure.
+
+[cols="1,3",options="header"]
+|===
+| Event | Diagnostic information
+| `app-start` | App/Electron/Chromium/Node versions, OS, architecture, executable and selected runtime switches
+| `render-process-gone`, `child-process-gone` | Termination reason and exit code; renderer ID and last observed OS PID, or child process type/service name
+| `preload-error` | Preload path, error message and stack
+| `did-fail-load`, `did-fail-provisional-load` | Error code, sanitized URL, main/subframe flag and frame identifiers; `ERR_ABORTED` can be an ordinary cancellation
+| `dom-ready`, `did-finish-load`, `unresponsive`, `responsive` | Page startup and responsiveness checkpoints
+| `before-quit`, `app-quit`, `main-process-exit` | Shutdown checkpoints and exit codes where available
+| `load-file-failed`, `startup-failed`, `uncaught-exception` | Main-page load rejection, startup failure or an observed fatal JavaScript exception
+|===
+
+Each record includes a UTC timestamp, launch session ID and main-process PID. Monitoring covers every Electron web contents, including hidden export windows. URL credentials, queries, fragments and inline `data:`/`blob:` payloads are removed, and long strings are capped. Local paths and error text can remain; the logger does not collect document bodies, IPC payloads or general console output. A log write failure is reported once to stderr and does not stop the app.
+
+A forced termination or native crash of the main process can prevent a final record. These logs identify the failure stage; they do not inspect injected DLLs or prove a security-product conflict. Reproduce with `npm run build` followed by `npm run test:diagnostics` to verify preload, missing-page and renderer-crash logging in a disposable profile.
+
 == Validate changes
 
 [source,sh]

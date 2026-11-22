@@ -25,6 +25,7 @@
     "test:preview-links": "node scripts/preview-links-smoke.mjs",
     "test:preview-pdf": "node scripts/preview-pdf-smoke.mjs",
     "test:desktop": "node scripts/smoke.mjs",
+    "test:diagnostics": "node scripts/diagnostics-smoke.mjs",
     "test:preview-features": "node scripts/preview-features-smoke.mjs",
     "test:appearance-git": "node scripts/appearance-git-smoke.mjs",
     "test:m1-01": "node scripts/m1-01-smoke.mjs",
