@@ -310,6 +310,23 @@ function App() {
       }
     } finally { locked.current = false; setBusy(false); }
   }
+  async function loadStarterSample() {
+    if (!session || locked.current) return;
+    locked.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await call(() => window.metis.loadStarterSample(scope(session)));
+      if (!result.ok) { report(result); return; }
+      await list(session, '');
+      documents.current?.open(result.value, 1);
+      setCenterView('documents');
+      setStatus('시작 샘플을 분할 보기로 열었습니다.');
+    } finally {
+      locked.current = false;
+      setBusy(false);
+    }
+  }
   async function read(entry: Entry, line?: number, revision?: string) {
     if (!session) return;
     setError(''); setStatus('문서를 읽고 있습니다.');
@@ -381,6 +398,7 @@ function App() {
     { id: 'workspace.create', label: '새 작업 공간', reason: blocked, run: () => beginCreate('workspace') },
     { id: 'workspace.close', label: '폴더 닫기', reason: needsWorkspace, run: close },
     { id: 'workspace.refresh', label: '폴더 새로 고침', reason: folderReady, run: () => list(session!, folder) },
+    { id: 'workspace.loadStarterSample', label: '시작 샘플 불러오기', reason: writable, run: loadStarterSample },
     { id: 'workspace.newDocument', label: '새 문서', reason: writable, run: () => beginCreate('document') },
     { id: 'workspace.newDirectory', label: '새 폴더', reason: writable, run: () => beginCreate('directory') },
     { id: 'search.text', label: '검색', shortcut: 'Ctrl/Cmd+Shift+F', reason: needsWorkspace, run: () => { setSearchMode('text'); if (layout.narrow) layout.setMobile('left'); layout.update({ ...layout.value, left: { ...layout.value.left, open: true, active: 'search' } }); } },
@@ -476,7 +494,7 @@ function App() {
       {centerView === 'documents' && !document &&
       <div className="empty"><div className="mark">M</div><h1>{session ? '작업 공간을 열었습니다.' : '문서가 있는 곳에서 시작하세요.'}</h1>
         <p>{session ? loading ? '현재 폴더의 문서 목록을 읽고 있습니다.' : entries.length ? '왼쪽 파일 패널에서 문서를 선택하세요.' : '현재 폴더에 표시할 AsciiDoc 문서가 없습니다.' : '기존 폴더를 열거나 빈 작업 공간을 만드세요.'}</p>
-        <div className="empty-actions">{!session ? <>{commandButton('workspace.open')}{commandButton('workspace.create')}</> : <>{commandButton('workspace.newDocument', '이 폴더에 문서 만들기')}<button onClick={() => { if (layout.narrow) layout.setMobile('left'); else layout.update({ ...layout.value, left: { ...layout.value.left, active: 'files', open: true } }); filesButton.current?.focus(); }}>파일 목록 보기</button></>}</div>
+        <div className="empty-actions">{!session ? <>{commandButton('workspace.open')}{commandButton('workspace.create')}</> : <>{commandButton('workspace.newDocument', '이 폴더에 문서 만들기')}{commandButton('workspace.loadStarterSample')}<button onClick={() => { if (layout.narrow) layout.setMobile('left'); else layout.update({ ...layout.value, left: { ...layout.value.left, active: 'files', open: true } }); filesButton.current?.focus(); }}>파일 목록 보기</button></>}</div>
         {session?.readOnly && <p>읽기 전용 작업 공간입니다. 새 문서를 만들려면 쓰기 가능한 폴더를 여세요.</p>}
         {!hideHints && <section className="welcome-hint" aria-label="첫 사용 안내"><p>폴더 선택 → .adoc 문서 만들기 → 원문 작성 → 저장 → 다시 열기</p><button onClick={() => openTool('help')}>작성 방법과 예제 보기</button> <button onClick={() => { setHintsHidden(true); window.document.querySelector<HTMLButtonElement>(".empty-actions button")?.focus(); }}>안내 건너뛰기</button><p>건너뛰어도 사이드바의 ‘도움말’에서 다시 볼 수 있습니다.</p></section>}
       </div>}</main>

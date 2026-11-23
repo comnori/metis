@@ -28,6 +28,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { channels, protocolVersion, validate, failure, BoundaryError, type Method, type PathRequest, type ScopedRequest, type NamedRequest, type RecentRequest, type CreateDirectoryRequest } from '@metis/contracts';
 import { Workspace, fileError, createWorkspaceFolder, Recents, Recovery, FileChanges } from '@metis/workspace';
+import starterSample from '../../../../samples/metis-starter.adoc?raw';
+
 protocol.registerSchemesAsPrivileged([{ scheme: 'metis-attachment', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }, { scheme: 'metis-plugin', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 if (process.env.METIS_USER_DATA) app.setPath('userData', process.env.METIS_USER_DATA);
 const launchQueue = new LaunchQueue();
@@ -151,7 +153,7 @@ if (ownsLock) app.whenReady().then(() => {
           throw new BoundaryError('ACCESS_DENIED', '허용되지 않은 요청입니다.');
         const request = validate(method, payload);
         requestId = request.requestId;
-        if (selecting && ['applyLaunch', 'configureEditor', 'selectPreviewStylesheet', 'openExternal', 'externalDecision', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'openWorkspace', 'createWorkspace', 'openRecentWorkspace', 'closeWorkspace', 'createDirectory', 'createDocument', 'saveDocument'].includes(method))
+        if (selecting && ['applyLaunch', 'configureEditor', 'selectPreviewStylesheet', 'openExternal', 'externalDecision', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'openWorkspace', 'createWorkspace', 'openRecentWorkspace', 'closeWorkspace', 'createDirectory', 'createDocument', 'loadStarterSample', 'saveDocument'].includes(method))
           throw new BoundaryError('BUSY', '진행 중인 폴더 작업을 완료해 주세요.');
         let value: unknown;
         switch (method) {
@@ -330,6 +332,16 @@ if (ownsLock) app.whenReady().then(() => {
           case 'createDocument':
             selecting = true;
             try { value = await workspace.createDocument(request as CreateDirectoryRequest); } finally { selecting = false; }
+            break;
+          case 'loadStarterSample':
+            selecting = true;
+            try {
+              value = await workspace.copy({ ...(request as ScopedRequest), relativePath: '', name: 'metis-starter.adoc', text: starterSample });
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code === 'EEXIST')
+                throw new BoundaryError('ALREADY_EXISTS', '작업 공간에 metis-starter.adoc 파일이 이미 있습니다. 파일 목록에서 열 수 있습니다.');
+              throw error;
+            } finally { selecting = false; }
             break;
           case 'runtime': value = { protocolVersion, workerReady: preview.ready }; break;
           case 'startupWorkspace': {

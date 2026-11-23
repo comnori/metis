@@ -39,6 +39,42 @@ try {
   await page.getByRole('button', { name: '파일 목록 보기' }).click(); await page.getByRole('button', { name: '≡first.adoc', exact: true }).click();
   const filesBeforeHelp = await readdir(fixture); await uiCommand(page, '시작 안내'); await page.screenshot({ path: path.join(run, 'guide.png') }); await guide.getByRole('button', { name: '닫기', exact: true }).click();
   assert.deepEqual(await readdir(fixture), filesBeforeHelp); assert.deepEqual(filesBeforeHelp.filter(name => name.endsWith('.adoc')), ['first.adoc']); checks.push('narrow empty screen opens temporary file panel; guide remains available with a document open');
+  const starterFolder = path.join(run, 'starter-workspace');
+  await mkdir(starterFolder);
+  await app.evaluate(({ BrowserWindow, dialog }, folder) => {
+    BrowserWindow.getAllWindows()[0].setContentSize(1180, 800);
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+  }, starterFolder);
+  await uiCommand(page, '폴더 열기');
+  const starterButton = page.getByRole('button', { name: '시작 샘플 불러오기', exact: true });
+  await starterButton.waitFor();
+  assert.deepEqual(await readdir(starterFolder), []);
+  await starterButton.click();
+
+  const starterName = 'metis-starter.adoc';
+  const starterPath = path.join(starterFolder, starterName);
+  await page.getByRole('heading', { name: starterName, exact: true }).waitFor();
+  await page.getByRole('button', { name: `≡${starterName}`, exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: '분할', exact: true }).getAttribute('aria-pressed'), 'true');
+  const preview = page.frameLocator('iframe[title="AsciiDoc 미리보기"]');
+  await preview.getByRole('heading', { name: 'AsciiDoc 기본 문법', exact: true }).waitFor();
+  await preview.locator('.metis-mermaid-output svg').waitFor();
+  await preview.locator('.metis-d2-diagram > svg').waitFor();
+  assert.deepEqual(await readdir(starterFolder), [starterName]);
+  checks.push('opt-in starter in the selected folder opens in split view with both diagrams rendered');
+
+  await editor.click();
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.insertText('\nMy changes to the starter sample.');
+  await page.getByRole('button', { name: '저장', exact: true }).click();
+  await page.locator('footer').filter({ hasText: '저장했습니다.' }).waitFor();
+  const editedStarter = await readFile(starterPath, 'utf8');
+  assert.ok(editedStarter.includes('My changes to the starter sample.'));
+  await uiCommand(page, '시작 안내');
+  await guide.getByRole('button', { name: '시작 샘플 불러오기', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'metis-starter.adoc 파일이 이미 있습니다.' }).waitFor();
+  assert.equal(await readFile(starterPath, 'utf8'), editedStarter);
+  checks.push('loading the starter again preserves the edited file');
   await writeFile(path.join(run, 'results.json'), JSON.stringify({ packaged: !!packaged, checks }, null, 2)); console.log(JSON.stringify({ run, checks }, null, 2));
 } catch (error) { console.error('Completed:', checks); if (page) console.error(await page.locator('body').innerText().catch(() => '')); throw error; }
 finally { await app.close(); }

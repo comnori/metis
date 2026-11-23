@@ -46,7 +46,7 @@ export const channels = {
   saveDocument: 'metis:save-document', createDocument: 'metis:create-document', confirmDiscard: 'metis:confirm-discard', recoveryFolder: 'metis:recovery-folder',
   startupWorkspace: 'metis:startup-workspace', openWorkspace: 'metis:open-workspace', closeWorkspace: 'metis:close-workspace',
   listDirectory: 'metis:list-directory', readDocument: 'metis:read-document', runtime: 'metis:runtime',
-  createWorkspace: 'metis:create-workspace', createDirectory: 'metis:create-directory',
+  createWorkspace: 'metis:create-workspace', createDirectory: 'metis:create-directory', loadStarterSample: 'metis:load-starter-sample',
   recentWorkspaces: 'metis:recent-workspaces', openRecentWorkspace: 'metis:open-recent-workspace', removeRecentWorkspace: 'metis:remove-recent-workspace'
 } as const;
 export type Method = keyof typeof channels;
@@ -154,6 +154,7 @@ export interface Api {
   analyzeDocument(request: AnalyzeRequest): Promise<Result<Analysis>>;
   saveDocument(request: SaveRequest): Promise<Result<DocumentSnapshot>>;
   createDocument(request: CreateDirectoryRequest): Promise<Result<DocumentSnapshot>>;
+  loadStarterSample(request: ScopedRequest): Promise<Result<DocumentSnapshot>>;
   confirmDiscard(request: Request): Promise<Result<boolean>>;
   recoveryFolder(request: Request): Promise<Result<null>>;
   startupWorkspace(request: Request): Promise<Result<Session | null>>;
@@ -224,7 +225,7 @@ export function validate(method: Method, input: unknown): Request | ScopedReques
     validate('readDocument', { requestId: value.requestId, workspaceId: value.workspaceId, workspaceEpoch: value.workspaceEpoch, relativePath: value.relativePath });
     return input as AttachmentRequest;
   }
-  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
+  const scoped = ['agentProgress', 'generateProposal', 'cancelProposal', 'queryAi', 'cancelAi', 'semanticDiff', 'cancelSemanticDiff', 'buildContext', 'cancelContext', 'openExternal', 'gitStatus', 'gitFile', 'gitVersion', 'selectPreviewStylesheet', 'readPreviewStylesheet', 'clearPreviewStylesheet', 'workspaceRelations', 'cancelRelations', 'fileOperationStatus', 'cancelFileReview', 'previewFileChange', 'applyFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listRecovery', 'readRecovery', 'searchDocuments', 'cancelSearch', 'closeWorkspace', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'loadStarterSample', 'saveDocument', 'analyzeDocument'].includes(method);
   const path = ['generateProposal', 'semanticDiff', 'openExternal', 'gitFile', 'gitVersion', 'previewFileChange', 'copyDocument', 'checkpointDocument', 'writeDraft', 'readDraft', 'deleteDraft', 'listDirectory', 'readDocument', 'createDirectory', 'createDocument', 'saveDocument', 'analyzeDocument'].includes(method);
   const named = ['copyDocument', 'createWorkspace', 'createDirectory', 'createDocument'].includes(method);
   const recent = method === 'openRecentWorkspace' || method === 'removeRecentWorkspace';

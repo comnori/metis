@@ -47,6 +47,7 @@ const api: Api = {
   analyzeDocument: request => ipcRenderer.invoke(channels.analyzeDocument, request),
   saveDocument: request => ipcRenderer.invoke(channels.saveDocument, request),
   createDocument: request => ipcRenderer.invoke(channels.createDocument, request),
+  loadStarterSample: request => ipcRenderer.invoke(channels.loadStarterSample, request),
   confirmDiscard: request => ipcRenderer.invoke(channels.confirmDiscard, request),
   recoveryFolder: request => ipcRenderer.invoke(channels.recoveryFolder, request),
   startupWorkspace: request => ipcRenderer.invoke(channels.startupWorkspace, request),
